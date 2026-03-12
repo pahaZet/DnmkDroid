@@ -105,7 +105,7 @@
             android:layout_height="128sp"
             android:layout_gravity="center"
             android:contentDescription="@string/app_name"
-            android:src="@drawable/logo_src" />
+            android:src="@drawable/logo_dyn" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -140,7 +140,7 @@
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:layout_marginEnd="8dp"
-            android:src="@drawable/logo_src"
+            android:src="@drawable/logo_dyn"
             android:contentDescription="@string/tinode_logo"/>
 
         <TextView

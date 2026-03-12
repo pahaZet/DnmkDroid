@@ -14,7 +14,7 @@
         android:id="@+id/imageLogo"
         android:layout_width="match_parent"
         android:layout_height="80dp"
-        android:src="@drawable/logo_src"
+        android:src="@drawable/logo_dyn"
         android:layout_alignParentStart="true"
         android:layout_alignParentTop="true"
         android:contentDescription="@string/tinode_logo"/>
@@ -122,7 +122,7 @@
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:layout_marginEnd="8dp"
-            android:src="@drawable/logo_src"
+            android:src="@drawable/logo_dyn"
             android:contentDescription="@string/tinode_logo"/>
 
         <TextView
