@@ -9,10 +9,14 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.Looper;
 import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
@@ -31,9 +35,13 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -41,6 +49,15 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 import androidx.documentfile.provider.DocumentFile;
 import androidx.exifinterface.media.ExifInterface;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.MimeTypes;
+import androidx.media3.effect.Presentation;
+import androidx.media3.transformer.DefaultEncoderFactory;
+import androidx.media3.transformer.EditedMediaItem;
+import androidx.media3.transformer.Effects;
+import androidx.media3.transformer.ExportException;
+import androidx.media3.transformer.Transformer;
+import androidx.media3.transformer.VideoEncoderSettings;
 import androidx.work.Constraints;
 import androidx.work.Data;
 import androidx.work.ExistingWorkPolicy;
@@ -63,6 +80,21 @@ import co.tinode.tinodesdk.model.ServerMessage;
 import co.tinode.tinodesdk.model.TheCard;
 
 public class AttachmentHandler extends Worker {
+    private static final long MIN_IMAGE_TARGET_BYTES = 4L * 1024 * 1024;
+    private static final long MAX_IMAGE_TARGET_BYTES = 12L * 1024 * 1024;
+    private static final int IMAGE_UPLOAD_QUALITY = 88;
+    private static final int IMAGE_UPLOAD_MIN_QUALITY = 76;
+    private static final int IMAGE_PREVIEW_QUALITY = 80;
+    private static final long VIDEO_TRANSCODE_HEADROOM_BYTES = 3L * 1024 * 1024;
+    private static final float VIDEO_TRANSCODE_TRIGGER_FRACTION = 0.8f;
+    private static final int VIDEO_MAX_SHORT_SIDE = 720;
+    private static final int VIDEO_MAX_LONG_SIDE = 1280;
+    private static final int VIDEO_DEFAULT_BITRATE = 2_500_000;
+    private static final int VIDEO_MAX_BITRATE = 4_000_000;
+    private static final int VIDEO_MIN_BITRATE = 350_000;
+    private static final int VIDEO_AUDIO_BITRATE_ESTIMATE = 128_000;
+    private static final long VIDEO_TRANSCODE_TIMEOUT_MINUTES = 30;
+
     final static String ARG_OPERATION = "operation";
     final static String ARG_OPERATION_IMAGE = "image";
     final static String ARG_OPERATION_FILE = "file";
@@ -98,6 +130,9 @@ public class AttachmentHandler extends Worker {
     private static final String TAG = "AttachmentHandler";
 
     private LargeFileHelper mUploader = null;
+    private volatile Transformer mTransformer = null;
+    private volatile Handler mTransformerHandler = null;
+    private volatile HandlerThread mTransformerThread = null;
 
     public AttachmentHandler(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
@@ -357,7 +392,7 @@ public class AttachmentHandler extends Worker {
     }
 
     private static long remoteDownload(AppCompatActivity activity, final Uri uri, final String fname, final String mime,
-                                      final Map<String, String> headers) {
+                                       final Map<String, String> headers) {
 
         DownloadManager dm = (DownloadManager) activity.getSystemService(Context.DOWNLOAD_SERVICE);
         if (dm == null) {
@@ -380,7 +415,7 @@ public class AttachmentHandler extends Worker {
 
         return dm.enqueue(
                 req.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI |
-                        DownloadManager.Request.NETWORK_MOBILE)
+                                DownloadManager.Request.NETWORK_MOBILE)
                         .setMimeType(mime)
                         .setAllowedOverRoaming(false)
                         .setTitle(fname)
@@ -463,6 +498,7 @@ public class AttachmentHandler extends Worker {
         if (mUploader != null) {
             mUploader.cancel();
         }
+        requestTransformerCancel();
 
         super.onStopped();
     }
@@ -477,9 +513,9 @@ public class AttachmentHandler extends Worker {
 
         final String topicName = args.getString(ARG_TOPIC_NAME);
         // URI must exist.
-        final Uri uri = Uri.parse(args.getString(ARG_LOCAL_URI));
+        Uri sourceUri = Uri.parse(args.getString(ARG_LOCAL_URI));
         // filePath is optional
-        final String filePath = args.getString(ARG_FILE_PATH);
+        String sourcePath = args.getString(ARG_FILE_PATH);
         final long msgId = args.getLong(ARG_MSG_ID, 0);
 
         final Data.Builder result = new Data.Builder()
@@ -499,12 +535,13 @@ public class AttachmentHandler extends Worker {
         boolean success = false;
         InputStream is = null;
         Bitmap bmp = null;
+        File transcodedVideo = null;
         try {
             final ContentResolver resolver = context.getContentResolver();
-            final UploadDetails uploadDetails = getFileDetails(context, uri, filePath);
+            final UploadDetails uploadDetails = getFileDetails(context, sourceUri, sourcePath);
 
             if (uploadDetails.fileSize == 0) {
-                Log.w(TAG, "File size is zero; uri=" + uri + "; file=" + filePath);
+                Log.w(TAG, "File size is zero; uri=" + sourceUri + "; file=" + sourcePath);
                 return ListenableWorker.Result.failure(
                         result.putBoolean(ARG_FATAL, true)
                                 .putString(ARG_ERROR, context.getString(R.string.unable_to_attach_file)).build());
@@ -525,15 +562,17 @@ public class AttachmentHandler extends Worker {
             // Image is being attached. Ensure the image has correct orientation and size.
             if (operation == UploadType.IMAGE) {
                 // Make sure the image is not too large in byte-size and in linear dimensions.
-                bmp = prepareImage(resolver, uri, uploadDetails);
-                is = UtilsBitmap.bitmapToStream(bmp, uploadDetails.mimeType);
-                uploadDetails.fileSize = is.available();
+                PreparedImage preparedImage = prepareImage(resolver, sourceUri, uploadDetails,
+                        getTargetImageSize(maxFileUploadSize));
+                bmp = preparedImage.bitmap;
+                is = new ByteArrayInputStream(preparedImage.bits);
+                uploadDetails.fileSize = preparedImage.bits.length;
 
                 // Create a tiny preview bitmap.
                 if (bmp.getWidth() > Const.IMAGE_PREVIEW_DIM || bmp.getHeight() > Const.IMAGE_PREVIEW_DIM) {
                     uploadDetails.previewBits = UtilsBitmap.bitmapToBytes(UtilsBitmap.scaleBitmap(bmp,
                                     Const.IMAGE_PREVIEW_DIM, Const.IMAGE_PREVIEW_DIM, false),
-                            "image/jpeg");
+                            "image/jpeg", IMAGE_PREVIEW_QUALITY);
                 }
             } else {
                 uploadDetails.duration = args.getInt(ARG_DURATION, 0);
@@ -554,6 +593,16 @@ public class AttachmentHandler extends Worker {
                     uploadDetails.width = args.getInt(ARG_IMAGE_WIDTH, 0);
                     uploadDetails.height = args.getInt(ARG_IMAGE_HEIGHT, 0);
                     uploadDetails.previewMime = args.getString(ARG_PRE_MIME_TYPE);
+                    populateVideoMetadata(context, sourceUri, sourcePath, uploadDetails);
+                    transcodedVideo = transcodeVideoIfNeeded(context, sourceUri, uploadDetails, maxFileUploadSize);
+                    if (transcodedVideo != null) {
+                        sourceUri = Uri.fromFile(transcodedVideo);
+                        sourcePath = transcodedVideo.getAbsolutePath();
+                        uploadDetails.filePath = sourcePath;
+                        uploadDetails.fileName = ensureMp4FileName(uploadDetails.fileName);
+                        uploadDetails.mimeType = MimeTypes.VIDEO_MP4;
+                        uploadDetails.fileSize = transcodedVideo.length();
+                    }
                     uploadDetails.previewSize = uploadDetails.previewBits != null ?
                             uploadDetails.previewBits.length : 0;
                     if (uploadDetails.previewSize > uploadDetails.fileSize) {
@@ -575,18 +624,18 @@ public class AttachmentHandler extends Worker {
                 Log.w(TAG, "Unable to process attachment: too big, size=" + uploadDetails.fileSize);
                 return ListenableWorker.Result.failure(
                         result.putString(ARG_ERROR,
-                                context.getString(
-                                        R.string.attachment_too_large,
-                                        UtilsString.bytesToHumanSize(uploadDetails.fileSize),
-                                        UtilsString.bytesToHumanSize(maxFileUploadSize)))
+                                        context.getString(
+                                                R.string.attachment_too_large,
+                                                UtilsString.bytesToHumanSize(uploadDetails.fileSize),
+                                                UtilsString.bytesToHumanSize(maxFileUploadSize)))
                                 .putBoolean(ARG_FATAL, true)
                                 .build());
             } else {
                 if (is == null) {
-                    is = resolver.openInputStream(uri);
+                    is = resolver.openInputStream(sourceUri);
                 }
                 if (is == null) {
-                    throw new IOException("Failed to open file at " + uri);
+                    throw new IOException("Failed to open file at " + sourceUri);
                 }
 
                 if (uploadDetails.fileSize + uploadDetails.previewSize > maxInbandAttachmentSize) {
@@ -709,8 +758,12 @@ public class AttachmentHandler extends Worker {
             if (bmp != null) {
                 bmp.recycle();
             }
-            if (operation == UploadType.AUDIO && filePath != null) {
-                new File(filePath).delete();
+            if (operation == UploadType.AUDIO && sourcePath != null) {
+                new File(sourcePath).delete();
+            }
+            if (transcodedVideo != null && transcodedVideo.exists()) {
+                // Temporary transcoded copy is only needed during the current upload job.
+                transcodedVideo.delete();
             }
             if (is != null) {
                 try {
@@ -776,15 +829,15 @@ public class AttachmentHandler extends Worker {
                 // Upload then return result with a link. This is a long-running blocking call.
                 LargeFileHelper uploader = Cache.getTinode().getLargeFileHelper();
                 result = uploader.uploadAsync(is, System.currentTimeMillis() + ".png", mimeType, fileSize,
-                                topicName, null).thenApply(new PromisedReply.SuccessListener<>() {
-                            @Override
-                            public PromisedReply<ServerMessage> onSuccess(ServerMessage msg) {
-                                if (msg != null && msg.ctrl != null && msg.ctrl.code == 200) {
-                                    pub.photo.ref = msg.ctrl.getStringParam("url", null);
-                                }
-                                return null;
-                            }
-                        });
+                        topicName, null).thenApply(new PromisedReply.SuccessListener<>() {
+                    @Override
+                    public PromisedReply<ServerMessage> onSuccess(ServerMessage msg) {
+                        if (msg != null && msg.ctrl != null && msg.ctrl.code == 200) {
+                            pub.photo.ref = msg.ctrl.getStringParam("url", null);
+                        }
+                        return null;
+                    }
+                });
             } else {
                 // Can send a small avatar in-band.
                 pub.photo.data = UtilsBitmap.bitmapToBytes(UtilsBitmap.scaleSquareBitmap(bmp, Const.AVATAR_THUMBNAIL_DIM), mimeType);
@@ -850,8 +903,32 @@ public class AttachmentHandler extends Worker {
         return msgDraft;
     }
 
+    private static long getTargetImageSize(long maxFileUploadSize) {
+        return Math.max(MIN_IMAGE_TARGET_BYTES, Math.min(MAX_IMAGE_TARGET_BYTES, maxFileUploadSize / 4));
+    }
+
+    private static String normalizeImageMimeType(String mimeType) {
+        return "image/png".equals(mimeType) ? "image/png" : "image/jpeg";
+    }
+
+    private static byte[] compressBitmapForUpload(@NonNull Bitmap bmp, @NonNull String mimeType,
+                                                  long targetByteSize) {
+        if (!"image/jpeg".equals(mimeType) || targetByteSize <= 0) {
+            return UtilsBitmap.bitmapToBytes(bmp, mimeType, 100);
+        }
+
+        int quality = IMAGE_UPLOAD_QUALITY;
+        byte[] bits = UtilsBitmap.bitmapToBytes(bmp, mimeType, quality);
+        while (bits.length > targetByteSize && quality > IMAGE_UPLOAD_MIN_QUALITY) {
+            quality = Math.max(IMAGE_UPLOAD_MIN_QUALITY, quality - 4);
+            bits = UtilsBitmap.bitmapToBytes(bmp, mimeType, quality);
+        }
+        return bits;
+    }
+
     // Make sure the image is not too large in byte-size and in linear dimensions, has correct orientation.
-    private static Bitmap prepareImage(ContentResolver r, Uri src, UploadDetails uploadDetails) throws IOException {
+    private static PreparedImage prepareImage(ContentResolver r, Uri src, UploadDetails uploadDetails,
+                                              long targetByteSize) throws IOException {
         InputStream is = r.openInputStream(src);
         if (is == null) {
             throw new IOException("Decoding bitmap: source not available");
@@ -863,13 +940,7 @@ public class AttachmentHandler extends Worker {
             throw new IOException("Failed to decode bitmap");
         }
 
-        // Make sure the image dimensions are not too large.
-        if (bmp.getWidth() > Const.MAX_BITMAP_SIZE || bmp.getHeight() > Const.MAX_BITMAP_SIZE) {
-            bmp = UtilsBitmap.scaleBitmap(bmp, Const.MAX_BITMAP_SIZE, Const.MAX_BITMAP_SIZE, false);
-
-            byte[] bits = UtilsBitmap.bitmapToBytes(bmp, uploadDetails.mimeType);
-            uploadDetails.fileSize = bits.length;
-        }
+        uploadDetails.mimeType = normalizeImageMimeType(uploadDetails.mimeType);
 
         // Also ensure the image has correct orientation.
         int orientation = ExifInterface.ORIENTATION_UNDEFINED;
@@ -918,7 +989,258 @@ public class AttachmentHandler extends Worker {
         uploadDetails.width = bmp.getWidth();
         uploadDetails.height = bmp.getHeight();
 
-        return bmp;
+        byte[] bits = compressBitmapForUpload(bmp, uploadDetails.mimeType, targetByteSize);
+        uploadDetails.fileSize = bits.length;
+        return new PreparedImage(bmp, bits);
+    }
+
+    private static void populateVideoMetadata(@NonNull Context context, @NonNull Uri sourceUri,
+                                              @Nullable String sourcePath, @NonNull UploadDetails uploadDetails) {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            if (!TextUtils.isEmpty(sourcePath)) {
+                retriever.setDataSource(sourcePath);
+            } else {
+                retriever.setDataSource(context, sourceUri);
+            }
+
+            int width = parseMetadataInt(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            int height = parseMetadataInt(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+            int rotation = parseMetadataInt(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+            if (rotation == 90 || rotation == 270) {
+                int tmp = width;
+                width = height;
+                height = tmp;
+            }
+
+            if (uploadDetails.width <= 0 && width > 0) {
+                uploadDetails.width = width;
+            }
+            if (uploadDetails.height <= 0 && height > 0) {
+                uploadDetails.height = height;
+            }
+            if (uploadDetails.duration <= 0) {
+                uploadDetails.duration = parseMetadataInt(retriever, MediaMetadataRetriever.METADATA_KEY_DURATION);
+            }
+        } catch (RuntimeException ex) {
+            Log.w(TAG, "Failed to read video metadata", ex);
+        } finally {
+            try {
+                retriever.release();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static int parseMetadataInt(@NonNull MediaMetadataRetriever retriever, int key) {
+        try {
+            String value = retriever.extractMetadata(key);
+            return TextUtils.isEmpty(value) ? 0 : Integer.parseInt(value);
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
+
+    private static boolean shouldTranscodeVideo(@NonNull UploadDetails uploadDetails, long maxFileUploadSize) {
+        int longSide = Math.max(uploadDetails.width, uploadDetails.height);
+        int shortSide = Math.min(uploadDetails.width, uploadDetails.height);
+        long triggerSize = (long) (maxFileUploadSize * VIDEO_TRANSCODE_TRIGGER_FRACTION);
+        return longSide > VIDEO_MAX_LONG_SIDE || shortSide > VIDEO_MAX_SHORT_SIDE ||
+                uploadDetails.fileSize > triggerSize;
+    }
+
+    @NonNull
+    private static int[] getTargetVideoSize(int width, int height) {
+        if (width <= 0 || height <= 0) {
+            return new int[]{VIDEO_MAX_SHORT_SIDE, VIDEO_MAX_LONG_SIDE};
+        }
+
+        int maxWidth = width >= height ? VIDEO_MAX_LONG_SIDE : VIDEO_MAX_SHORT_SIDE;
+        int maxHeight = width >= height ? VIDEO_MAX_SHORT_SIDE : VIDEO_MAX_LONG_SIDE;
+        float scale = Math.min(1f, Math.min((float) maxWidth / width, (float) maxHeight / height));
+        int scaledWidth = makeEven(Math.max(2, Math.round(width * scale)));
+        int scaledHeight = makeEven(Math.max(2, Math.round(height * scale)));
+        return new int[]{scaledWidth, scaledHeight};
+    }
+
+    private static int makeEven(int value) {
+        if (value < 2) {
+            return 2;
+        }
+        return (value & 1) == 0 ? value : value - 1;
+    }
+
+    private static int calculateTargetVideoBitrate(@NonNull UploadDetails uploadDetails, long maxFileUploadSize) {
+        if (uploadDetails.duration <= 0) {
+            return VIDEO_DEFAULT_BITRATE;
+        }
+
+        long targetBytes = Math.max(8L << 20, maxFileUploadSize - VIDEO_TRANSCODE_HEADROOM_BYTES);
+        long targetBits = targetBytes * 8;
+        long audioBits = (long) VIDEO_AUDIO_BITRATE_ESTIMATE * uploadDetails.duration / 1000L;
+        long videoBits = Math.max((long) VIDEO_MIN_BITRATE * uploadDetails.duration / 1000L, targetBits - audioBits);
+        long bitrate = videoBits * 1000L / uploadDetails.duration;
+        return (int) Math.max(VIDEO_MIN_BITRATE, Math.min(VIDEO_MAX_BITRATE, bitrate));
+    }
+
+    @NonNull
+    private static String ensureMp4FileName(@Nullable String fileName) {
+        if (TextUtils.isEmpty(fileName)) {
+            return "video.mp4";
+        }
+
+        int dotAt = fileName.lastIndexOf('.');
+        String base = dotAt > 0 ? fileName.substring(0, dotAt) : fileName;
+        return base + ".mp4";
+    }
+
+    @Nullable
+    private File transcodeVideoIfNeeded(@NonNull Context context, @NonNull Uri sourceUri,
+                                        @NonNull UploadDetails uploadDetails,
+                                        long maxFileUploadSize) throws IOException {
+        if (!shouldTranscodeVideo(uploadDetails, maxFileUploadSize)) {
+            return null;
+        }
+
+        int[] targetSize = getTargetVideoSize(uploadDetails.width, uploadDetails.height);
+        int targetBitrate = calculateTargetVideoBitrate(uploadDetails, maxFileUploadSize);
+        File outputFile = File.createTempFile("VID_TR_", ".mp4", context.getCacheDir());
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<ExportException> errorRef = new AtomicReference<>();
+        AtomicReference<RuntimeException> threadErrorRef = new AtomicReference<>();
+        Transformer.Listener listener = new Transformer.Listener() {
+            @Override
+            public void onCompleted(androidx.media3.transformer.Composition composition,
+                                    androidx.media3.transformer.ExportResult exportResult) {
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(androidx.media3.transformer.Composition composition,
+                                androidx.media3.transformer.ExportResult exportResult,
+                                ExportException exportException) {
+                errorRef.set(exportException);
+                latch.countDown();
+            }
+        };
+
+        VideoEncoderSettings videoEncoderSettings = new VideoEncoderSettings.Builder()
+                .setBitrate(targetBitrate)
+                .build();
+        EditedMediaItem editedMediaItem = new EditedMediaItem.Builder(MediaItem.fromUri(sourceUri))
+                .setEffects(new Effects(
+                        Collections.emptyList(),
+                        Collections.singletonList(Presentation.createForWidthAndHeight(
+                                targetSize[0], targetSize[1], Presentation.LAYOUT_SCALE_TO_FIT))))
+                .build();
+
+        HandlerThread transformerThread = new HandlerThread("AttachmentVideoTransformer");
+        transformerThread.start();
+        Handler transformerHandler = new Handler(transformerThread.getLooper());
+        mTransformerThread = transformerThread;
+        mTransformerHandler = transformerHandler;
+
+        CountDownLatch startLatch = new CountDownLatch(1);
+        transformerHandler.post(() -> {
+            try {
+                mTransformer = new Transformer.Builder(context)
+                        .setLooper(transformerThread.getLooper())
+                        .setPortraitEncodingEnabled(true)
+                        .setAudioMimeType(MimeTypes.AUDIO_AAC)
+                        .setVideoMimeType(MimeTypes.VIDEO_H264)
+                        .setEncoderFactory(new DefaultEncoderFactory.Builder(context)
+                                .setEnableFallback(true)
+                                .setRequestedVideoEncoderSettings(videoEncoderSettings)
+                                .build())
+                        .addListener(listener)
+                        .build();
+                mTransformer.start(editedMediaItem, outputFile.getAbsolutePath());
+            } catch (RuntimeException ex) {
+                threadErrorRef.set(ex);
+                latch.countDown();
+            } finally {
+                startLatch.countDown();
+            }
+        });
+
+        try {
+            long deadlineNanos = System.nanoTime() + TimeUnit.MINUTES.toNanos(VIDEO_TRANSCODE_TIMEOUT_MINUTES);
+            startLatch.await();
+            while (!latch.await(1, TimeUnit.SECONDS)) {
+                if (isStopped()) {
+                    requestTransformerCancel();
+                    throw new CancellationException();
+                }
+                if (System.nanoTime() >= deadlineNanos) {
+                    requestTransformerCancel();
+                    throw new IOException("Timed out while transcoding video");
+                }
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            requestTransformerCancel();
+            throw new CancellationException();
+        } finally {
+            shutdownTransformer(listener);
+        }
+
+        RuntimeException threadError = threadErrorRef.get();
+        if (threadError != null) {
+            outputFile.delete();
+            throw new IOException("Failed to transcode video", threadError);
+        }
+        ExportException exportException = errorRef.get();
+        if (exportException != null) {
+            outputFile.delete();
+            throw new IOException("Failed to transcode video", exportException);
+        }
+
+        uploadDetails.width = targetSize[0];
+        uploadDetails.height = targetSize[1];
+        uploadDetails.mimeType = MimeTypes.VIDEO_MP4;
+        return outputFile;
+    }
+
+    private void requestTransformerCancel() {
+        Handler handler = mTransformerHandler;
+        if (handler != null) {
+            handler.post(() -> {
+                if (mTransformer != null) {
+                    mTransformer.cancel();
+                }
+            });
+        }
+    }
+
+    private void shutdownTransformer(@NonNull Transformer.Listener listener) {
+        Handler handler = mTransformerHandler;
+        HandlerThread thread = mTransformerThread;
+        if (handler != null && thread != null) {
+            CountDownLatch cleanupLatch = new CountDownLatch(1);
+            handler.post(() -> {
+                if (mTransformer != null) {
+                    mTransformer.removeListener(listener);
+                }
+                mTransformer = null;
+                cleanupLatch.countDown();
+            });
+            try {
+                cleanupLatch.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+            thread.quitSafely();
+            try {
+                thread.join(5_000);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        } else {
+            mTransformer = null;
+        }
+        mTransformerHandler = null;
+        mTransformerThread = null;
     }
 
     private static BitmapFactory.Options boundsFromBitmapBits(byte[] bits) {
@@ -965,5 +1287,15 @@ public class AttachmentHandler extends Worker {
         int previewSize;
         String previewRef;
         byte[] previewBits;
+    }
+
+    static class PreparedImage {
+        final Bitmap bitmap;
+        final byte[] bits;
+
+        PreparedImage(Bitmap bitmap, byte[] bits) {
+            this.bitmap = bitmap;
+            this.bits = bits;
+        }
     }
 }

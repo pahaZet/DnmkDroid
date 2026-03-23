@@ -317,14 +317,19 @@ public class UtilsBitmap {
 
     @NonNull
     public static byte[] bitmapToBytes(@NonNull Bitmap bmp, String mimeType) {
+        return bitmapToBytes(bmp, mimeType, 70);
+    }
+
+    @NonNull
+    public static byte[] bitmapToBytes(@NonNull Bitmap bmp, String mimeType, int quality) {
         Bitmap.CompressFormat fmt;
-        if ("image/jpeg".equals(mimeType)) {
-            fmt = Bitmap.CompressFormat.JPEG;
-        } else {
+        if ("image/png".equals(mimeType)) {
             fmt = Bitmap.CompressFormat.PNG;
+        } else {
+            fmt = Bitmap.CompressFormat.JPEG;
         }
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        bmp.compress(fmt, 70, bos);
+        bmp.compress(fmt, quality, bos);
         byte[] bits = bos.toByteArray();
         try {
             bos.close();

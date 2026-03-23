@@ -197,7 +197,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                 int[] selected = getSelectedArray();
                 if (id == R.id.action_edit) {
                     if (selected != null) {
-                        showMessageQuote(UiUtils.MsgAction.EDIT, selected[0], Const.EDIT_PREVIEW_LENGTH);
+                        showMessageQuote(UiUtils.MsgAction.EDIT, selected[0],
+                                Const.EDIT_PREVIEW_LENGTH, true);
                     }
                     return true;
                 } else if (id == R.id.action_delete) {
@@ -217,12 +218,13 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                     return true;
                 } else if (id == R.id.action_reply) {
                     if (selected != null) {
-                        showMessageQuote(UiUtils.MsgAction.REPLY, selected[0], Const.QUOTED_REPLY_LENGTH);
+                        showMessageQuote(UiUtils.MsgAction.REPLY, selected[0],
+                                Const.QUOTED_REPLY_LENGTH, true);
                     }
                     return true;
                 } else if (id == R.id.action_forward) {
                     if (selected != null) {
-                        showMessageForwardSelector(selected[0]);
+                        showMessageForwardSelector(selected[0], true);
                     }
                     return true;
                 } else if (id == R.id.action_pin || id == R.id.action_unpin) {
@@ -305,15 +307,15 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
             ((TextView) layout.findViewById(R.id.confirmDelete)).setText(multiple ?
                     R.string.confirm_delete_message_plural :
                     R.string.confirm_delete_message_single);
-                CheckBox forAllCheckbox = layout.findViewById(R.id.deleteForAll);
-                if (Topic.isP2PType(mTopicName)) {
-                    final ComTopic topic = Cache.getTinode().getComTopic(mTopicName);
-                    VxCard card = topic != null ? (VxCard) topic.getPub() : null;
-                    String peer = card != null ? card.fn : mTopicName;
-                    forAllCheckbox.setText(activity.getString(R.string.delete_for_peer, peer));
-                } else {
-                    forAllCheckbox.setText(R.string.delete_for_everybody);
-                }
+            CheckBox forAllCheckbox = layout.findViewById(R.id.deleteForAll);
+            if (Topic.isP2PType(mTopicName)) {
+                final ComTopic topic = Cache.getTinode().getComTopic(mTopicName);
+                VxCard card = topic != null ? (VxCard) topic.getPub() : null;
+                String peer = card != null ? card.fn : mTopicName;
+                forAllCheckbox.setText(activity.getString(R.string.delete_for_peer, peer));
+            } else {
+                forAllCheckbox.setText(R.string.delete_for_everybody);
+            }
 
             confirmBuilder.setView(layout);
         } else {
@@ -323,10 +325,10 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         }
 
         confirmBuilder.setPositiveButton(android.R.string.ok, (dialog, which) -> {
-                    CheckBox forAllCheckbox = ((AlertDialog) dialog).findViewById(R.id.deleteForAll);
-                    boolean hard = forAllCheckbox != null && forAllCheckbox.isChecked();
-                    sendDeleteMessages(positions, hard);
-                });
+            CheckBox forAllCheckbox = ((AlertDialog) dialog).findViewById(R.id.deleteForAll);
+            boolean hard = forAllCheckbox != null && forAllCheckbox.isChecked();
+            sendDeleteMessages(positions, hard);
+        });
         confirmBuilder.show();
     }
 
@@ -500,13 +502,13 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         return uname;
     }
 
-    private void showMessageQuote(UiUtils.MsgAction action, int pos, int quoteLength) {
-        toggleSelectionAt(pos);
-        notifyItemChanged(pos);
-        updateSelectionMode();
-
+    private void showMessageQuote(UiUtils.MsgAction action, int pos, int quoteLength,
+                                  boolean clearSelection) {
+        if (clearSelection) {
+            clearSelectionAt(pos);
+        }
         StoredMessage msg = getMessage(pos);
-        if (msg == null) {
+        if (msg == null || msg.content == null) {
             return;
         }
 
@@ -540,13 +542,12 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         });
     }
 
-    private void showMessageForwardSelector(int pos) {
+    private void showMessageForwardSelector(int pos, boolean clearSelection) {
         StoredMessage msg = getMessage(pos);
-        if (msg != null) { // No need to check message status, OK to forward failed message.
-            toggleSelectionAt(pos);
-            notifyItemChanged(pos);
-            updateSelectionMode();
-
+        if (msg != null && msg.content != null) { // No need to check message status, OK to forward failed message.
+            if (clearSelection) {
+                clearSelectionAt(pos);
+            }
             Bundle args = new Bundle();
             String uname = "➦ " + messageFrom(msg);
             String from = msg.from != null ? msg.from : mTopicName;
@@ -556,6 +557,27 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
             ForwardToFragment fragment = new ForwardToFragment();
             fragment.setArguments(args);
             fragment.show(mActivity.getSupportFragmentManager(), MessageActivity.FRAGMENT_FORWARD_TO);
+        }
+    }
+
+    boolean canSwipeMessage(int pos) {
+        if (mSelectedItems != null && mSelectedItems.size() > 0) {
+            return false;
+        }
+
+        StoredMessage msg = getMessage(pos);
+        return msg != null && msg.status == BaseDb.Status.SYNCED && msg.content != null;
+    }
+
+    void replyToMessage(int pos) {
+        if (canSwipeMessage(pos)) {
+            showMessageQuote(UiUtils.MsgAction.REPLY, pos, Const.QUOTED_REPLY_LENGTH, false);
+        }
+    }
+
+    void forwardMessage(int pos) {
+        if (canSwipeMessage(pos)) {
+            showMessageForwardSelector(pos, false);
         }
     }
 
@@ -663,6 +685,10 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         }
 
         holder.seqId = m.seq;
+        View swipeContent = holder.itemView.findViewById(R.id.content);
+        if (swipeContent != null) {
+            swipeContent.setTranslationX(0f);
+        }
 
         if (mCursor == null) {
             return;
@@ -893,8 +919,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         int from = vh.mMessageBubble.getResources().getColor(isMine ?
                 R.color.colorMessageBubbleMine : R.color.colorMessageBubbleOther, null);
         int to = vh.mMessageBubble.getResources().getColor(isMine ?
-                (light ? R.color.colorMessageBubbleMineFlashingLight : R.color.colorMessageBubbleMineFlashing) :
-                (light ? R.color.colorMessageBubbleOtherFlashingLight: R.color.colorMessageBubbleOtherFlashing),
+                        (light ? R.color.colorMessageBubbleMineFlashingLight : R.color.colorMessageBubbleMineFlashing) :
+                        (light ? R.color.colorMessageBubbleOtherFlashingLight: R.color.colorMessageBubbleOtherFlashing),
                 null);
         ValueAnimator colorAnimation = ValueAnimator.ofArgb(from, to, from);
         colorAnimation.setDuration(light ? MESSAGE_BUBBLE_ANIMATION_SHORT : MESSAGE_BUBBLE_ANIMATION_LONG);
@@ -963,6 +989,14 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
             mSelectedItems.delete(pos);
         } else {
             mSelectedItems.put(pos, true);
+        }
+    }
+
+    private void clearSelectionAt(int pos) {
+        if (mSelectedItems != null && mSelectedItems.get(pos)) {
+            toggleSelectionAt(pos);
+            notifyItemChanged(pos);
+            updateSelectionMode();
         }
     }
 

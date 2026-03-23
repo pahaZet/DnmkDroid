@@ -120,6 +120,7 @@ dependencies {
     implementation "androidx.media3:media3-exoplayer:${media3_version}"
     implementation "androidx.media3:media3-ui:${media3_version}"
     implementation "androidx.media3:media3-datasource:${media3_version}"
+    implementation "androidx.media3:media3-transformer:${media3_version}"
     implementation 'com.google.android.flexbox:flexbox:3.0.0'
     implementation 'com.google.android.gms:play-services-oss-licenses:17.4.0'
     implementation 'com.google.android.material:material:1.13.0'

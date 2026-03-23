@@ -74,6 +74,7 @@ public class VideoViewFragment extends Fragment implements MenuProvider {
     // Otherwise write to temp file.
     private static final int MAX_POSTER_BYTES = 1024 * 3; // 3K.
     private static final int MAX_VIDEO_BYTES = 1024 * 4; // 4K.
+    private static final int VIDEO_POSTER_QUALITY = 82;
 
     private ExoPlayer mExoPlayer;
     // Media source factory for remote videos from Tinode server.
@@ -165,9 +166,9 @@ public class VideoViewFragment extends Fragment implements MenuProvider {
         // Send message on Enter.
         ((EditText) view.findViewById(R.id.editMessage))
                 .setOnEditorActionListener((v, actionId, event) -> {
-            sendVideo();
-            return true;
-        });
+                    sendVideo();
+                    return true;
+                });
 
         return view;
     }
@@ -438,15 +439,14 @@ public class VideoViewFragment extends Fragment implements MenuProvider {
                 if (mVideoWidth > Const.MAX_POSTER_SIZE || mVideoHeight > Const.MAX_POSTER_SIZE) {
                     bmp = UtilsBitmap.scaleBitmap(bmp, Const.MAX_POSTER_SIZE, Const.MAX_POSTER_SIZE, false);
                 }
-                byte[] bitmapBits = UtilsBitmap.bitmapToBytes(bmp, "image/jpeg");
+                byte[] bitmapBits = UtilsBitmap.bitmapToBytes(bmp, "image/jpeg", VIDEO_POSTER_QUALITY);
                 if (bitmapBits.length > MAX_POSTER_BYTES) {
                     Uri fileUri = writeToTempFile(activity, bitmapBits, "PST_", ".jpeg");
                     if (fileUri != null) {
                         outputArgs.putParcelable(AttachmentHandler.ARG_PRE_URI, fileUri);
                     }
                 } else {
-                    outputArgs.putByteArray(AttachmentHandler.ARG_PREVIEW,
-                            UtilsBitmap.bitmapToBytes(bmp, "image/jpeg"));
+                    outputArgs.putByteArray(AttachmentHandler.ARG_PREVIEW, bitmapBits);
                 }
                 outputArgs.putString(AttachmentHandler.ARG_PRE_MIME_TYPE, "image/jpeg");
             }
