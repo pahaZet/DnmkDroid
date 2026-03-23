@@ -191,11 +191,12 @@ public class ImageViewFragment extends Fragment implements MenuProvider {
         // Upload avatar.
         view.findViewById(R.id.acceptAvatar).setOnClickListener(v -> acceptAvatar());
         // Send message on Enter.
-        ((EditText) view.findViewById(R.id.editMessage)).setOnEditorActionListener(
-                (v, actionId, event) -> {
-                    sendImage();
-                    return true;
-                });
+        EditText editor = view.findViewById(R.id.editMessage);
+        editor.setMaxLines(Const.MESSAGE_INPUT_MAX_LINES);
+        editor.setOnEditorActionListener((v, actionId, event) -> {
+            sendImage();
+            return true;
+        });
 
         return view;
     }
