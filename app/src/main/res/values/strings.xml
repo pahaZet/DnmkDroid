@@ -6,10 +6,10 @@
     <string name="contact_us_uri" translatable="false">mailto:support@tinode.co</string>
     <string name="terms_of_use_uri" translatable="false">https://tinode.co/terms.html</string>
     <string name="privacy_policy_uri" translatable="false">https://tinode.co/privacy.html</string>
-    <string name="app_name" translatable="false">Tinode</string>
-    <string name="app_name_full" translatable="false">Tinode Chat</string>
-    <string name="copyright" translatable="false">© 2014 – 2025 Tinode</string>
-    <string name="tinode" translatable="false">Tinode</string>
+    <string name="app_name" translatable="false">DynaChat</string>
+    <string name="app_name_full" translatable="false">Dynamics Chat</string>
+    <string name="copyright" translatable="false">©2026 Dynamics</string>
+    <string name="tinode" translatable="false">DynaChat</string>
 
     <string name="app_version">Version</string>
 
@@ -21,13 +21,13 @@
     <string name="send_file_button_hint">Send file</string>
 
     <string name="sign_in">Sign In</string>
-    <string name="app_description" translatable="false">Tinode Chat</string>
+    <string name="app_description" translatable="false">Чат ГК Динамика</string>
     <string name="action_signup">Sign Up</string>
     <string name="sign_up">Sign Up</string>
     <string name="login_new">Login</string>
     <string name="password_new">Password</string>
     <string name="full_name">Full name, e.g. John Doe</string>
-    <string name="tinode_logo" translatable="false">Tinode Logo</string>
+    <string name="tinode_logo" translatable="false">DynaChat Logo</string>
     <string name="action_cancel">Cancel</string>
     <string name="settings_host_name">Server address</string>
     <string name="settings_use_tls">Use secure connection</string>
@@ -74,12 +74,12 @@
      alphabet using ListView fast scroll. -->
     <string name="alphabet">\ ABCDEFGHIJKLMNOPQRSTUVWXYZ</string>
 
-    <string name="tinode_invite_subject">Check out Tinode Messenger</string>
-    <string name="tinode_invite_body">Check out Tinode Messenger. Download it from https://tinode.co</string>
+    <string name="tinode_invite_subject">Check out DynaChat Messenger</string>
+    <string name="tinode_invite_body">Check out DynaChat Messenger.</string>
 
-    <string name="profile_action">Tinode profile</string>
+    <string name="profile_action">DynaChat profile</string>
     <string name="view_profile">View Profile</string>
-    <string name="tinode_message">Send Tinode message</string>
+    <string name="tinode_message">Send DynaChat message</string>
     <string name="hint_topic_title">Name of the group</string>
     <string name="group_members">Group Members</string>
     <string name="name_required">Group name required</string>
@@ -159,7 +159,7 @@
     <string name="hint_search_tags">Search by tags</string>
     <string name="topic_not_found_or_invalid">Conversation not found or invalid</string>
     <string name="sending_disabled">Not available</string>
-    <string name="download_title">Tinode download</string>
+    <string name="download_title">DynaChat download</string>
     <string name="some_permissions_missing">Please grant all requested permissions.</string>
     <string name="unable_to_attach_file">Unable to attach this file</string>
     <string name="canceled">canceled</string>
@@ -228,7 +228,7 @@
     <string name="outgoing_call">Outgoing call</string>
     <string name="incoming_call">Incoming call</string>
 
-    <string name="default_contact_name">Tinode User %1$s</string>
+    <string name="default_contact_name">DynaChat User %1$s</string>
     <string name="permission_missing">Required permission is missing</string>
     <string name="enter_search_query">Enter search query</string>
     <string name="image_caption_hint">Image caption</string>
@@ -326,12 +326,12 @@
     <string name="unable_to_play_video">Unable to play this video.</string>
     <string name="video_call_channel_name">Video calls</string>
     <string name="video_call_channel_description">Video and audio calls</string>
-    <string name="tinode_video_call">Tinode Video Call</string>
+    <string name="tinode_video_call">DynaChat Video Call</string>
     <string name="answer_call">Answer</string>
     <string name="decline_call">Decline</string>
     <string name="document_preview">Document preview</string>
     <string name="action_call">Call</string>
-    <string name="tinode_audio_call">Tinode Call</string>
+    <string name="tinode_audio_call">DynaChat Call</string>
     <string name="unable_to_place_call">Unable to make this call</string>
     <string name="phone_sms_explained">We will send an SMS with confirmation code to the number above.</string>
     <string name="phone_number_required">Valid phone number required</string>
