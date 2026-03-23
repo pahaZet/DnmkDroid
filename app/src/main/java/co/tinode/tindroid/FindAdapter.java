@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.database.Cursor;
 import android.graphics.Typeface;
+import android.telephony.PhoneNumberUtils;
 import android.text.SpannableString;
 import android.text.TextUtils;
 import android.text.style.TextAppearanceSpan;
@@ -15,8 +16,12 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -38,6 +43,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
     private final TextAppearanceSpan mHighlightTextSpan;
     private final ClickListener mClickListener;
     private List<FoundMember> mFound;
+    private List<AddressBookEntry> mAddressBook;
     private Cursor mCursor;
     private String mSearchTerm;
     // TRUE is user granted access to contacts, FALSE otherwise.
@@ -65,6 +71,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         }
 
         mSearchTerm = searchTerm;
+        rebuildAddressBook();
         if (activity != null) {
             activity.runOnUiThread(this::notifyDataSetChanged);
         }
@@ -86,6 +93,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         final Cursor oldCursor = mCursor;
 
         mCursor = newCursor;
+        rebuildAddressBook();
 
         // Notify the observers about the new cursor
         notifyDataSetChanged();
@@ -155,7 +163,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         // Subtract section title.
         position--;
 
-        int count = getCursorItemCount();
+        int count = getAddressBookItemCount();
         if (count == 0) {
             if (position == 0) {
                 // The 'empty' element in the 'PHONE CONTACTS' section.
@@ -201,7 +209,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         // Subtract section title.
         position--;
 
-        int count = getCursorItemCount();
+        int count = getAddressBookItemCount();
         if (count == 0) {
             if (position == 0) {
                 // The 'empty' element in the 'PHONE CONTACTS' section.
@@ -210,13 +218,12 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
 
             count = 1;
         } else if (position < count) {
-            // Element from the cursor.
-            mCursor.moveToPosition(position);
-            String unique = mCursor.getString(ContactsLoaderCallback.ContactsQuery.IM_ADDRESS);
+            // Element from address book list.
+            String unique = mAddressBook.get(position).stableKey();
             return ("contact:" + unique).hashCode();
         }
 
-        // Skip all cursor elements
+        // Skip all address book elements
         position -= count;
 
         if (position == 0) {
@@ -244,6 +251,10 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         return mFound != null ? mFound.size() : 0;
     }
 
+    private int getAddressBookItemCount() {
+        return mAddressBook != null ? mAddressBook.size() : 0;
+    }
+
     private Object getItemAt(int position) {
         if (TextUtils.isEmpty(mSearchTerm)) {
             // Self topic is present.
@@ -263,7 +274,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         position--;
 
         // Count the section title element.
-        int count = getCursorItemCount();
+        int count = getAddressBookItemCount();
         if (count == 0) {
             if (position == 0) {
                 // The 'empty' element in the 'PHONE CONTACTS' section.
@@ -271,10 +282,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
             }
             count = 1;
         } else if (position < count) {
-            // One of the phone contacts. Move the cursor
-            // to the correct position and return it.
-            mCursor.moveToPosition(position);
-            return mCursor;
+            return mAddressBook.get(position);
         }
 
         position -= count;
@@ -308,7 +316,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
 
         int count = getFoundItemCount();
         itemCount += count == 0 ? 1 : count;
-        count = getCursorItemCount();
+        count = getAddressBookItemCount();
         itemCount += count == 0 ? 1 : count;
 
         return itemCount;
@@ -370,15 +378,16 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         public void bind(int position, final Object data) {
             if (data instanceof FoundMember) {
                 bind((FoundMember) data);
-            } else if (data instanceof Cursor) {
-                bind((Cursor) data);
+            } else if (data instanceof AddressBookEntry) {
+                bind((AddressBookEntry) data);
             }
         }
 
-        private void bind(final Cursor cursor) {
-            final String photoUri = cursor.getString(ContactsLoaderCallback.ContactsQuery.PHOTO_THUMBNAIL_DATA);
-            final String displayName = cursor.getString(ContactsLoaderCallback.ContactsQuery.DISPLAY_NAME);
-            final String unique = cursor.getString(ContactsLoaderCallback.ContactsQuery.IM_ADDRESS);
+        private void bind(final AddressBookEntry entry) {
+            final String photoUri = entry.photoUri();
+            final String displayName = entry.displayName();
+            final String unique = entry.id();
+            final String description = entry.description();
 
             final int startIndex = UtilsString.indexOfSearchQuery(displayName, mSearchTerm);
 
@@ -387,17 +396,10 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
                 // name, show the display name without highlighting
                 name.setText(displayName);
 
-                if (TextUtils.isEmpty(mSearchTerm)) {
-                    if (TextUtils.isEmpty(unique)) {
-                        // Search string is empty and we have no contacts to show
-                        contactPriv.setVisibility(View.GONE);
-                    } else {
-                        contactPriv.setText(unique);
-                        contactPriv.setVisibility(View.VISIBLE);
-                    }
+                if (TextUtils.isEmpty(description)) {
+                    contactPriv.setVisibility(View.GONE);
                 } else {
-                    // Shows a second line of text that indicates the search string matched
-                    // something other than the display name
+                    contactPriv.setText(description);
                     contactPriv.setVisibility(View.VISIBLE);
                 }
             } else {
@@ -415,12 +417,18 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
                 // Binds the SpannableString to the display name View object
                 name.setText(highlightedName);
 
-                // Since the search string matched the name, this hides the secondary message
-                contactPriv.setVisibility(View.GONE);
+                if (TextUtils.isEmpty(description)) {
+                    contactPriv.setVisibility(View.GONE);
+                } else {
+                    contactPriv.setText(description);
+                    contactPriv.setVisibility(View.VISIBLE);
+                }
             }
 
             Context context = itemView.getContext();
-            if (photoUri != null) {
+            if (entry.pub() != null && entry.pub().photo != null) {
+                UiUtils.setAvatar(avatar, entry.pub(), unique, false);
+            } else if (photoUri != null) {
                 Coil.imageLoader(context).enqueue(
                         new ImageRequest.Builder(context)
                             .data(photoUri)
@@ -472,6 +480,139 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         }
     }
 
+    private void rebuildAddressBook() {
+        mAddressBook = new LinkedList<>();
+        if (getCursorItemCount() == 0 || getFoundItemCount() == 0) {
+            return;
+        }
+
+        Map<String, FoundMember> byPhone = new HashMap<>();
+        for (FoundMember member : mFound) {
+            if (member == null || TextUtils.isEmpty(member.id)) {
+                continue;
+            }
+            indexMemberPhones(byPhone, member);
+        }
+
+        Set<String> seen = new HashSet<>();
+        for (mCursor.moveToFirst(); !mCursor.isAfterLast(); mCursor.moveToNext()) {
+            String number = mCursor.getString(ContactsLoaderCallback.ContactsQuery.PHONE_NUMBER);
+            FoundMember matched = resolveByPhone(byPhone, number);
+            if (matched == null) {
+                continue;
+            }
+
+            String contactId = mCursor.getString(ContactsLoaderCallback.ContactsQuery.CONTACT_ID);
+            String dedupeKey = contactId + ":" + matched.id;
+            if (!seen.add(dedupeKey)) {
+                continue;
+            }
+
+            String displayName = mCursor.getString(ContactsLoaderCallback.ContactsQuery.DISPLAY_NAME);
+            String photoUri = mCursor.getString(ContactsLoaderCallback.ContactsQuery.PHOTO_THUMBNAIL_DATA);
+            mAddressBook.add(new AddressBookEntry(
+                    matched.id,
+                    displayName,
+                    photoUri,
+                    addressBookDescription(matched, displayName),
+                    dedupeKey,
+                    matched.pub));
+        }
+    }
+
+    private static String addressBookDescription(FoundMember member, String displayName) {
+        if (member.pub != null && !TextUtils.isEmpty(member.pub.fn) && !member.pub.fn.equals(displayName)) {
+            return member.pub.fn;
+        }
+        if (member.priv != null && member.priv.length > 0) {
+            List<String> tags = new LinkedList<>();
+            for (String val : member.priv) {
+                if (!TextUtils.isEmpty(val) && !val.startsWith("tel:")) {
+                    tags.add(val);
+                }
+            }
+            if (!tags.isEmpty()) {
+                return TextUtils.join(", ", tags);
+            }
+        }
+        return member.id;
+    }
+
+    private static FoundMember resolveByPhone(Map<String, FoundMember> byPhone, String phone) {
+        for (String variant : normalizedPhoneVariants(phone)) {
+            FoundMember matched = byPhone.get(variant);
+            if (matched != null) {
+                return matched;
+            }
+        }
+        return null;
+    }
+
+    private static void indexMemberPhones(Map<String, FoundMember> byPhone, FoundMember member) {
+        if (member.pub != null && member.pub.tel != null) {
+            for (VxCard.Contact phone : member.pub.tel) {
+                for (String variant : normalizedPhoneVariants(stripPhoneScheme(phone.uri))) {
+                    byPhone.putIfAbsent(variant, member);
+                }
+            }
+        }
+        if (member.priv != null) {
+            for (String match : member.priv) {
+                if (match != null && match.startsWith("tel:")) {
+                    for (String variant : normalizedPhoneVariants(stripPhoneScheme(match))) {
+                        byPhone.putIfAbsent(variant, member);
+                    }
+                }
+            }
+        }
+    }
+
+    private static String stripPhoneScheme(String raw) {
+        if (TextUtils.isEmpty(raw)) {
+            return raw;
+        }
+        int idx = raw.indexOf(':');
+        if (idx > 0 && idx + 1 < raw.length()) {
+            String prefix = raw.substring(0, idx).toLowerCase();
+            if ("tel".equals(prefix) || "phone".equals(prefix)) {
+                return raw.substring(idx + 1);
+            }
+        }
+        return raw;
+    }
+
+    private static List<String> normalizedPhoneVariants(String raw) {
+        List<String> variants = new LinkedList<>();
+        if (TextUtils.isEmpty(raw)) {
+            return variants;
+        }
+
+        String normalized = PhoneNumberUtils.normalizeNumber(raw);
+        if (TextUtils.isEmpty(normalized)) {
+            return variants;
+        }
+
+        variants.add(normalized);
+
+        if (normalized.startsWith("+")) {
+            variants.add(normalized.substring(1));
+        }
+
+        String digits = normalized.replaceAll("[^0-9]", "");
+        if (!TextUtils.isEmpty(digits)) {
+            variants.add(digits);
+            if (digits.length() > 10) {
+                variants.add(digits.substring(digits.length() - 10));
+            }
+        }
+
+        return variants;
+    }
+
     private record FoundMember(String id, VxCard pub, String[] priv) {
+    }
+
+    private record AddressBookEntry(String id, String displayName, String photoUri, String description,
+                                    String stableKey, VxCard pub) {
     }
 }
