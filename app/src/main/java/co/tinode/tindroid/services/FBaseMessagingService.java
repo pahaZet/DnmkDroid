@@ -108,6 +108,7 @@ public class FBaseMessagingService extends FirebaseMessagingService {
         //
 
         String topicName;
+        int seqId = 0;
 
         final Tinode tinode = Cache.getTinode();
         NotificationCompat.Builder builder;
@@ -126,6 +127,14 @@ public class FBaseMessagingService extends FirebaseMessagingService {
 
             String webrtc = data.get("webrtc");
             String senderId = data.get("xfrom");
+            String seq = data.get("seq");
+            if (!TextUtils.isEmpty(seq)) {
+                try {
+                    seqId = Integer.parseInt(seq);
+                } catch (NumberFormatException ignored) {
+                    // Leave seqId at 0.
+                }
+            }
 
             // Update data state, maybe fetch missing data.
             String token = Utils.getLoginToken(getApplicationContext());
@@ -283,10 +292,10 @@ public class FBaseMessagingService extends FirebaseMessagingService {
             return;
         }
 
-        showNotification(builder, topicName);
+        showNotification(builder, topicName, seqId);
     }
 
-    private void showNotification(NotificationCompat.Builder builder, String topicName) {
+    private void showNotification(NotificationCompat.Builder builder, String topicName, int seqId) {
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) {
             Log.e(TAG, "NotificationManager is not available");
@@ -305,11 +314,14 @@ public class FBaseMessagingService extends FirebaseMessagingService {
             // Communication on a known topic
             intent = new Intent(this, MessageActivity.class);
             intent.putExtra(Const.INTENT_EXTRA_TOPIC, topicName);
+            if (seqId > 0) {
+                intent.putExtra(Const.INTENT_EXTRA_SEQ, seqId);
+            }
         }
 
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, requestCode, intent,
-                PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         // MessageActivity will cancel all notifications by tag, which is just topic name.
         // All notifications receive the same id 0 because id is not used.

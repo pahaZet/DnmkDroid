@@ -181,6 +181,7 @@ public class MessageActivity extends BaseActivity
     // Notification settings.
     private boolean mSendTypingNotifications = false;
     private boolean mSendReadReceipts = false;
+    private int mOpenMessageSeq = 0;
 
     // Only for grp topics:
     // Keeps track of the known subscriptions for the given topic.
@@ -263,16 +264,34 @@ public class MessageActivity extends BaseActivity
         mMessageText = TextUtils.isEmpty(text) ? null : text.toString();
         intent.putExtra(Intent.EXTRA_TEXT, (String) null);
 
-        // If topic name is not saved, get it from intent, internal or external.
+        // Prefer explicit launch topic from intent (e.g. push tap), fallback to current topic.
         String topicName = mTopicName;
-        if (TextUtils.isEmpty(mTopicName)) {
-            topicName = readTopicNameFromIntent(intent);
+        String requestedTopic = readTopicNameFromIntent(intent);
+        if (!TextUtils.isEmpty(requestedTopic)) {
+            topicName = requestedTopic;
+            // Consume launch parameters to avoid reopening the same topic on next resume.
+            intent.removeExtra(Const.INTENT_EXTRA_TOPIC);
+            intent.removeExtra("msg");
         }
+        mOpenMessageSeq = intent.getIntExtra(Const.INTENT_EXTRA_SEQ, 0);
+        intent.removeExtra(Const.INTENT_EXTRA_SEQ);
 
         if (!changeTopic(topicName, false)) {
             Cache.setSelectedTopicName(null);
             finish();
             return;
+        }
+
+        if (mOpenMessageSeq > 0) {
+            final int seqToOpen = mOpenMessageSeq;
+            mOpenMessageSeq = 0;
+            getWindow().getDecorView().post(() -> {
+                MessagesFragment fragmsg = (MessagesFragment) getSupportFragmentManager()
+                        .findFragmentByTag(FRAGMENT_MESSAGES);
+                if (fragmsg != null) {
+                    fragmsg.scrollToMessage(seqToOpen);
+                }
+            });
         }
 
         // Resume message sender.
@@ -416,8 +435,13 @@ public class MessageActivity extends BaseActivity
         String name = intent.getStringExtra(Const.INTENT_EXTRA_TOPIC);
         if (!TextUtils.isEmpty(name)) {
             return name;
-        } else {
-            name = Tinode.parseTinodeUrl(name);
+        }
+        Uri launchUri = intent.getData();
+        if (launchUri != null) {
+            name = Tinode.parseTinodeUrl(launchUri.toString());
+            if (!TextUtils.isEmpty(name)) {
+                return name;
+            }
         }
 
         // Check if activity was launched from a background push notification.
@@ -430,7 +454,7 @@ public class MessageActivity extends BaseActivity
         }
 
         // mTopicName is empty, so this is an external intent
-        Uri contactUri = intent.getData();
+        Uri contactUri = launchUri;
         if (contactUri != null) {
             Cursor cursor = null;
             if (UiUtils.isPermissionGranted(this, Manifest.permission.READ_CONTACTS)) {
