@@ -136,6 +136,15 @@ public class FBaseMessagingService extends FirebaseMessagingService {
                 }
             }
 
+            String visibleTopic = UiUtils.getVisibleTopic();
+            Topic activeTopic = tinode.getTopic(topicName);
+            if (webrtc == null && topicName.equals(visibleTopic) &&
+                    tinode.isConnected() && activeTopic != null && activeTopic.isAttached()) {
+                // The currently visible chat is already subscribed and will receive the packet
+                // through the live connection. Avoid triggering the OOB fetch path too.
+                return;
+            }
+
             // Update data state, maybe fetch missing data.
             String token = Utils.getLoginToken(getApplicationContext());
             String selectedTopic = Cache.getSelectedTopicName();
@@ -154,7 +163,6 @@ public class FBaseMessagingService extends FirebaseMessagingService {
                 return;
             }
 
-            String visibleTopic = UiUtils.getVisibleTopic();
             if (visibleTopic != null && visibleTopic.equals(topicName)) {
                 // No need to do anything if we are in the topic already.
                 return;

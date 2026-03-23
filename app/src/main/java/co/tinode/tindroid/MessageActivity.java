@@ -25,8 +25,6 @@ import android.util.Log;
 import android.view.MenuItem;
 import android.widget.Toast;
 
-import com.google.firebase.messaging.RemoteMessage;
-
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.net.URI;
@@ -428,35 +426,15 @@ public class MessageActivity extends BaseActivity
 
     // Get topic name from Intent the Activity was launched with (push notification, other app, other activity).
     private String readTopicNameFromIntent(Intent intent) {
-        // Check if the activity was launched by internally-generated intent.
-        String name = intent.getStringExtra(Const.INTENT_EXTRA_TOPIC);
-        if (TextUtils.isEmpty(name)) {
-            name = intent.getStringExtra("topic");
-        }
+        String name = UiUtils.readTopicNameFromLaunchIntent(intent);
         if (!TextUtils.isEmpty(name)) {
             return name;
         }
 
         Uri dataUri = intent.getData();
         if (dataUri != null) {
-            name = Tinode.parseTinodeUrl(intent.getDataString());
-            if (!TextUtils.isEmpty(name)) {
-                return name;
-            }
-        }
-
-        // Check if activity was launched from a background push notification.
-        RemoteMessage msg = intent.getParcelableExtra("msg");
-        if (msg != null) {
-            RemoteMessage.Notification notification = msg.getNotification();
-            if (notification != null) {
-                return notification.getTag();
-            }
-        }
-
-        // mTopicName is empty, so this is an external intent
-        Uri contactUri = dataUri;
-        if (contactUri != null) {
+            // mTopicName is empty, so this is an external intent
+            Uri contactUri = dataUri;
             Cursor cursor = null;
             if (TextUtils.equals("content", contactUri.getScheme()) &&
                     UiUtils.isPermissionGranted(this, Manifest.permission.READ_CONTACTS)) {
@@ -500,28 +478,7 @@ public class MessageActivity extends BaseActivity
     }
 
     private int readMessageSeqFromIntent(@NonNull Intent intent) {
-        int seqId = intent.getIntExtra(Const.INTENT_EXTRA_SEQ, 0);
-        if (seqId <= 0) {
-            seqId = intent.getIntExtra("seq", 0);
-        }
-        if (seqId > 0) {
-            return seqId;
-        }
-
-        String seqStr = intent.getStringExtra(Const.INTENT_EXTRA_SEQ);
-        if (TextUtils.isEmpty(seqStr)) {
-            seqStr = intent.getStringExtra("seq");
-        }
-        if (TextUtils.isEmpty(seqStr)) {
-            return 0;
-        }
-
-        try {
-            return Integer.parseInt(seqStr);
-        } catch (NumberFormatException ex) {
-            Log.w(TAG, "Invalid seq in intent: " + seqStr, ex);
-            return 0;
-        }
+        return UiUtils.readMessageSeqFromLaunchIntent(intent);
     }
 
     private void openPendingMessageIfPossible() {

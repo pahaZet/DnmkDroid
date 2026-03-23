@@ -85,7 +85,7 @@ public class LoginActivity extends BaseActivity
         BaseDb db = BaseDb.getInstance();
         if (db.isReady()) {
             // We already have a configured account. All good. Launch ContactsActivity and stop.
-            Intent intent = new Intent(this, ChatsActivity.class);
+            Intent intent = UiUtils.createPostLoginIntent(this, getIntent());
             intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             startActivity(intent);
             finish();

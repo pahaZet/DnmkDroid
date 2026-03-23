@@ -143,6 +143,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
     private int mPagesToLoad;
     @Nullable
     private Runnable mOnContentChanged;
+    @Nullable
+    private RecyclerView.OnScrollListener mPendingAnimationScrollListener;
 
     private final MediaControl mMediaControl;
 
@@ -294,6 +296,18 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         super.onAttachedToRecyclerView(recyclerView);
 
         mRecyclerView = recyclerView;
+    }
+
+    @Override
+    public void onDetachedFromRecyclerView(@NonNull RecyclerView recyclerView) {
+        if (mPendingAnimationScrollListener != null) {
+            recyclerView.removeOnScrollListener(mPendingAnimationScrollListener);
+            mPendingAnimationScrollListener = null;
+        }
+        if (mRecyclerView == recyclerView) {
+            mRecyclerView = null;
+        }
+        super.onDetachedFromRecyclerView(recyclerView);
     }
 
     // Confirmation dialog "Do you really want to delete message(s)"
@@ -874,6 +888,10 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
 
     // Scroll to and animate message bubble.
     boolean scrollToAndAnimate(int seq) {
+        if (mRecyclerView == null) {
+            return false;
+        }
+
         final int pos = findInCursor(mCursor, seq);
         if (pos < 0) {
             return false;
@@ -891,19 +909,25 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                         mm.isMine(), false);
             } else {
                 // Scroll then animate.
-                mRecyclerView.clearOnScrollListeners();
-                mRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                if (mPendingAnimationScrollListener != null) {
+                    mRecyclerView.removeOnScrollListener(mPendingAnimationScrollListener);
+                }
+                mPendingAnimationScrollListener = new RecyclerView.OnScrollListener() {
                     @Override
                     public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
                         super.onScrollStateChanged(recyclerView, newState);
                         if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                             recyclerView.removeOnScrollListener(this);
+                            if (mPendingAnimationScrollListener == this) {
+                                mPendingAnimationScrollListener = null;
+                            }
                             animateMessageBubble(
                                     (ViewHolder) mRecyclerView.findViewHolderForAdapterPosition(pos),
                                     mm.isMine(), false);
                         }
                     }
-                });
+                };
+                mRecyclerView.addOnScrollListener(mPendingAnimationScrollListener);
                 mRecyclerView.smoothScrollToPosition(pos);
             }
             return true;

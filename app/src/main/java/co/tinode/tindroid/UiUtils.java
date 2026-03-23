@@ -48,6 +48,8 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.firebase.messaging.RemoteMessage;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -372,10 +374,117 @@ public class UiUtils {
             TindroidApp.startWatchingContacts(activity, acc);
         }
 
-        Intent intent = new Intent(activity, ChatsActivity.class);
+        Intent intent = createPostLoginIntent(activity, activity.getIntent());
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         activity.startActivity(intent);
         activity.finish();
+    }
+
+    @Nullable
+    static String readTopicNameFromLaunchIntent(@Nullable Intent intent) {
+        if (intent == null) {
+            return null;
+        }
+
+        String topicName = intent.getStringExtra(Const.INTENT_EXTRA_TOPIC);
+        if (TextUtils.isEmpty(topicName)) {
+            topicName = intent.getStringExtra("topic");
+        }
+        if (TextUtils.isEmpty(topicName) && intent.getData() != null) {
+            topicName = Tinode.parseTinodeUrl(intent.getDataString());
+        }
+        if (!TextUtils.isEmpty(topicName)) {
+            return topicName;
+        }
+
+        RemoteMessage msg = intent.getParcelableExtra("msg");
+        if (msg != null) {
+            topicName = msg.getData().get("topic");
+            if (TextUtils.isEmpty(topicName) && msg.getNotification() != null) {
+                topicName = msg.getNotification().getTag();
+            }
+        }
+
+        return topicName;
+    }
+
+    static int readMessageSeqFromLaunchIntent(@Nullable Intent intent) {
+        if (intent == null) {
+            return 0;
+        }
+
+        int seqId = intent.getIntExtra(Const.INTENT_EXTRA_SEQ, 0);
+        if (seqId <= 0) {
+            seqId = intent.getIntExtra("seq", 0);
+        }
+        if (seqId > 0) {
+            return seqId;
+        }
+
+        String seqStr = intent.getStringExtra(Const.INTENT_EXTRA_SEQ);
+        if (TextUtils.isEmpty(seqStr)) {
+            seqStr = intent.getStringExtra("seq");
+        }
+        if (TextUtils.isEmpty(seqStr)) {
+            RemoteMessage msg = intent.getParcelableExtra("msg");
+            if (msg != null) {
+                seqStr = msg.getData().get("seq");
+            }
+        }
+        if (TextUtils.isEmpty(seqStr)) {
+            return 0;
+        }
+
+        try {
+            return Integer.parseInt(seqStr);
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    static void copyLaunchTopicExtras(@Nullable Intent source, @NonNull Intent target) {
+        String topicName = readTopicNameFromLaunchIntent(source);
+        if (!TextUtils.isEmpty(topicName)) {
+            target.putExtra(Const.INTENT_EXTRA_TOPIC, topicName);
+        }
+
+        int seqId = readMessageSeqFromLaunchIntent(source);
+        if (seqId > 0) {
+            target.putExtra(Const.INTENT_EXTRA_SEQ, seqId);
+        }
+    }
+
+    @NonNull
+    static Intent createPostLoginIntent(@NonNull Context context, @Nullable Intent source) {
+        String topicName = readTopicNameFromLaunchIntent(source);
+        if (TextUtils.isEmpty(topicName)) {
+            return new Intent(context, ChatsActivity.class);
+        }
+
+        Intent intent = new Intent(context, MessageActivity.class);
+        intent.putExtra(Const.INTENT_EXTRA_TOPIC, topicName);
+
+        int seqId = readMessageSeqFromLaunchIntent(source);
+        if (seqId > 0) {
+            intent.putExtra(Const.INTENT_EXTRA_SEQ, seqId);
+        }
+
+        return intent;
+    }
+
+    static void clearLaunchTopicExtras(@Nullable Intent intent) {
+        if (intent == null) {
+            return;
+        }
+
+        intent.removeExtra(Const.INTENT_EXTRA_TOPIC);
+        intent.removeExtra(Const.INTENT_EXTRA_SEQ);
+        intent.removeExtra("topic");
+        intent.removeExtra("seq");
+        intent.removeExtra("msg");
+        if (intent.getData() != null) {
+            intent.setData(null);
+        }
     }
 
     static void doLogout(Context context) {

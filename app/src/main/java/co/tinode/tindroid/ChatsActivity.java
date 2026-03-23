@@ -87,6 +87,15 @@ public class ChatsActivity extends BaseActivity
     public void onResume() {
         super.onResume();
 
+        final Intent intent = getIntent();
+        if (!TextUtils.isEmpty(UiUtils.readTopicNameFromLaunchIntent(intent))) {
+            Intent launch = UiUtils.createPostLoginIntent(this, intent);
+            UiUtils.clearLaunchTopicExtras(intent);
+            launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(launch);
+            return;
+        }
+
         final Tinode tinode = Cache.getTinode();
         mTinodeListener = new ContactsEventListener(tinode.isConnected());
         tinode.addListener(mTinodeListener);
@@ -105,7 +114,6 @@ public class ChatsActivity extends BaseActivity
             toggleProgressIndicator(false);
         }
 
-        final Intent intent = getIntent();
         String tag = intent.getStringExtra(TAG_FRAGMENT_NAME);
         if (!TextUtils.isEmpty(tag)) {
             showFragment(tag, null);
@@ -123,7 +131,10 @@ public class ChatsActivity extends BaseActivity
     public void onPause() {
         super.onPause();
 
-        Cache.getTinode().removeListener(mTinodeListener);
+        if (mTinodeListener != null) {
+            Cache.getTinode().removeListener(mTinodeListener);
+            mTinodeListener = null;
+        }
     }
 
     @Override
