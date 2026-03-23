@@ -9,6 +9,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteBlobTooBigException;
@@ -65,6 +66,7 @@ import androidx.appcompat.widget.AppCompatImageButton;
 import androidx.core.app.ActivityCompat;
 import androidx.loader.app.LoaderManager;
 import androidx.loader.content.Loader;
+import androidx.preference.PreferenceManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
@@ -145,6 +147,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
     private Runnable mOnContentChanged;
     @Nullable
     private RecyclerView.OnScrollListener mPendingAnimationScrollListener;
+    private long mPendingNewMessageId = View.NO_ID;
+    private final int mMessageFadeDuration;
 
     private final MediaControl mMediaControl;
 
@@ -160,6 +164,7 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         mMessageLoaderCallback = new MessageLoaderCallbacks();
 
         mMediaControl = new MediaControl(context);
+        mMessageFadeDuration = readMessageFadeDuration(context);
 
         mSelectionModeCallback = new ActionMode.Callback() {
             @Override
@@ -704,6 +709,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
             return;
         }
 
+        holder.itemView.animate().cancel();
+        holder.itemView.setAlpha(1f);
         holder.seqId = m.seq;
         View swipeContent = holder.itemView.findViewById(R.id.content);
         if (swipeContent != null) {
@@ -1113,6 +1120,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         }
 
         Cursor oldCursor = mCursor;
+        final int prependedCount = refresh == REFRESH_SOFT ? countPrependedMessages(oldCursor, cursor) : 0;
+        final long newTopMessageId = prependedCount > 0 ? getLocalIdAtPosition(cursor, 0) : View.NO_ID;
         mCursor = cursor;
 
         // Close previous cursor if it existed and is different from the new one.
@@ -1135,14 +1144,109 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                 } else {
                     notifyDataSetChanged();
                 }
-                if (cursor != null && position == 0) {
+                if (prependedCount > 0) {
+                    mPendingNewMessageId = newTopMessageId;
+                } else {
+                    mPendingNewMessageId = View.NO_ID;
+                }
+                if (cursor != null && (position == 0 || prependedCount > 0)) {
                     mRecyclerView.scrollToPosition(0);
+                }
+                if (prependedCount > 0) {
+                    animatePendingNewMessage(6);
                 }
                 if (mOnContentChanged != null) {
                     mOnContentChanged.run();
                 }
             });
         }
+    }
+
+    private int readMessageFadeDuration(@NonNull Context context) {
+        SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(context);
+        try {
+            return Math.max(0, pref.getInt(Const.PREF_MESSAGE_UFADE, Const.DEFAULT_MESSAGE_UFADE));
+        } catch (ClassCastException ignored) {
+            String value = pref.getString(Const.PREF_MESSAGE_UFADE, null);
+            if (!TextUtils.isEmpty(value)) {
+                try {
+                    return Math.max(0, Integer.parseInt(value));
+                } catch (NumberFormatException ignored2) {
+                    // Ignore malformed persisted value and use default below.
+                }
+            }
+        }
+        return Const.DEFAULT_MESSAGE_UFADE;
+    }
+
+    private static long getLocalIdAtPosition(@Nullable Cursor cursor, int position) {
+        if (cursor == null || cursor.isClosed() || !cursor.moveToPosition(position)) {
+            return View.NO_ID;
+        }
+        return MessageDb.getLocalId(cursor);
+    }
+
+    private static int findCursorPositionById(@Nullable Cursor cursor, long itemId) {
+        if (cursor == null || cursor.isClosed() || itemId == View.NO_ID) {
+            return -1;
+        }
+
+        try {
+            for (int i = 0; i < cursor.getCount(); i++) {
+                if (cursor.moveToPosition(i) && MessageDb.getLocalId(cursor) == itemId) {
+                    return i;
+                }
+            }
+        } catch (SQLiteBlobTooBigException ex) {
+            Log.w(TAG, "Failed to read message id (misconfigured server):", ex);
+        }
+        return -1;
+    }
+
+    private static int countPrependedMessages(@Nullable Cursor oldCursor, @Nullable Cursor newCursor) {
+        if (oldCursor == null || newCursor == null || oldCursor.isClosed() || newCursor.isClosed()) {
+            return 0;
+        }
+
+        int oldCount = oldCursor.getCount();
+        int newCount = newCursor.getCount();
+        if (oldCount <= 0 || newCount <= oldCount) {
+            return 0;
+        }
+
+        long oldTopId = getLocalIdAtPosition(oldCursor, 0);
+        if (oldTopId == View.NO_ID) {
+            return 0;
+        }
+
+        int prepended = newCount - oldCount;
+        return findCursorPositionById(newCursor, oldTopId) == prepended ? prepended : 0;
+    }
+
+    private void animatePendingNewMessage(int remainingAttempts) {
+        if (mRecyclerView == null || mPendingNewMessageId == View.NO_ID) {
+            return;
+        }
+
+        RecyclerView.ViewHolder holder = mRecyclerView.findViewHolderForItemId(mPendingNewMessageId);
+        if (!(holder instanceof ViewHolder)) {
+            if (remainingAttempts > 0) {
+                mRecyclerView.post(() -> animatePendingNewMessage(remainingAttempts - 1));
+            } else {
+                mPendingNewMessageId = View.NO_ID;
+            }
+            return;
+        }
+
+        View itemView = holder.itemView;
+        itemView.animate().cancel();
+        itemView.setAlpha(0f);
+        itemView.animate()
+                .alpha(1f)
+                .setDuration(mMessageFadeDuration)
+                .withEndAction(() -> itemView.setAlpha(1f))
+                .start();
+        mPendingNewMessageId = View.NO_ID;
     }
 
     /**

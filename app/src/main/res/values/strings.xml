@@ -241,6 +241,7 @@
     <string name="incognito_mode_enabled">Incognito mode</string>
     <string name="about_the_app">About the Application</string>
     <string name="general">General</string>
+    <string name="animations">Animations</string>
     <string name="delete_account">Delete account</string>
     <string name="help">Help</string>
     <string name="security">Security</string>
@@ -385,6 +386,7 @@
     <string name="keyboard">Keyboard</string>
     <string name="select_theme">Select Theme</string>
     <string name="send_on_enter">Send on Enter</string>
+    <string name="settings_message_ufade">New message fade, ms</string>
     <string name="follow_system">Follow System</string>
     <string name="light_theme">Light Theme</string>
     <string name="dark_theme">Dark Theme</string>

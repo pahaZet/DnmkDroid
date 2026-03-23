@@ -2,9 +2,12 @@ package co.tinode.tindroid;
 
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
 import android.widget.RadioGroup;
 
 import androidx.annotation.NonNull;
@@ -54,7 +57,55 @@ public class AccGeneralFragment extends Fragment {
         sendOnEnter.setChecked(sendOnEnterEnabled);
         sendOnEnter.setOnCheckedChangeListener((buttonView, isChecked) ->
                 preferences.edit().putBoolean(Utils.PREFS_SEND_ON_ENTER, isChecked).apply());
+
+        EditText ufadeInput = view.findViewById(R.id.ufade_input);
+        ufadeInput.setText(String.valueOf(readUfadePreference()));
+        ufadeInput.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                persistUfadeValue((EditText) v);
+            }
+        });
+        ufadeInput.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT) {
+                persistUfadeValue((EditText) v);
+            }
+            return false;
+        });
         return view;
+    }
+
+    private int readUfadePreference() {
+        try {
+            return Math.max(0, preferences.getInt(Const.PREF_MESSAGE_UFADE, Const.DEFAULT_MESSAGE_UFADE));
+        } catch (ClassCastException ignored) {
+            String value = preferences.getString(Const.PREF_MESSAGE_UFADE, null);
+            if (!TextUtils.isEmpty(value)) {
+                try {
+                    return Math.max(0, Integer.parseInt(value));
+                } catch (NumberFormatException ignored2) {
+                    // Ignore malformed value and use default.
+                }
+            }
+        }
+        return Const.DEFAULT_MESSAGE_UFADE;
+    }
+
+    private void persistUfadeValue(@NonNull EditText input) {
+        String raw = input.getText() != null ? input.getText().toString().trim() : "";
+        int value = Const.DEFAULT_MESSAGE_UFADE;
+        if (!TextUtils.isEmpty(raw)) {
+            try {
+                value = Math.max(0, Integer.parseInt(raw));
+            } catch (NumberFormatException ignored) {
+                // Revert invalid content to the last valid/default value below.
+            }
+        }
+        preferences.edit().putInt(Const.PREF_MESSAGE_UFADE, value).apply();
+        String normalized = Integer.toString(value);
+        if (!normalized.equals(raw)) {
+            input.setText(normalized);
+            input.setSelection(normalized.length());
+        }
     }
 
     private void handleThemeSelection(String selectedKey) {

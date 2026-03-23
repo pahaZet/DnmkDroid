@@ -8,6 +8,8 @@ public class Const {
 
     public static final String PREF_TYPING_NOTIF = "pref_typingNotif";
     public static final String PREF_READ_RCPT = "pref_readReceipts";
+    public static final String PREF_MESSAGE_UFADE = "ufade";
+    public static final int DEFAULT_MESSAGE_UFADE = 100;
 
     public static final String INTENT_ACTION_CALL_CLOSE = "tindroidx.intent.action.call.CLOSE";
 

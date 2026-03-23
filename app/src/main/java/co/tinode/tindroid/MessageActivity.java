@@ -1026,12 +1026,25 @@ public class MessageActivity extends BaseActivity
         @Override
         public void onData(MsgServerData data) {
             // Don't send a notification for own messages. They are read by default.
+            boolean incomingRegularMessage = data != null &&
+                    !Cache.getTinode().isMe(data.from) &&
+                    UiUtils.parseSeqReference(data.getStringHeader("replace")) <= 0 &&
+                    data.getStringHeader("webrtc") == null;
             if (data != null && !Cache.getTinode().isMe(data.from)) {
                 sendNoteRead(data.seq);
             }
             // Cancel typing animation.
-            runOnUiThread(() -> mTypingAnimationTimer =
-                    UiUtils.toolbarTypingIndicator(MessageActivity.this, mTypingAnimationTimer, -1));
+            runOnUiThread(() -> {
+                mTypingAnimationTimer =
+                        UiUtils.toolbarTypingIndicator(MessageActivity.this, mTypingAnimationTimer, -1);
+                if (incomingRegularMessage) {
+                    MessagesFragment fragment = (MessagesFragment) getSupportFragmentManager()
+                            .findFragmentByTag(FRAGMENT_MESSAGES);
+                    if (fragment != null && fragment.isVisible()) {
+                        fragment.scrollToLatestMessage();
+                    }
+                }
+            });
             runMessagesLoader();
         }
 

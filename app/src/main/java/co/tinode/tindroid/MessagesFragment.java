@@ -152,6 +152,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
     private String mTopicName = null;
     private String mMessageToSend = null;
     private int mPendingScrollSeq = 0;
+    private boolean mPendingScrollToLatest = false;
     private boolean mChatInvitationShown = false;
 
     private boolean mSendOnEnter = false;
@@ -363,6 +364,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
         mRecyclerView = view.findViewById(R.id.messages_container);
         mRecyclerView.setLayoutManager(mMessageViewLayoutManager);
+        mRecyclerView.setItemAnimator(null);
         mRecyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrollStateChanged(@NonNull RecyclerView recyclerView, int newState) {
@@ -390,7 +392,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
         mRefresher = view.findViewById(R.id.swipe_refresher);
         mMessagesAdapter = new MessagesAdapter(activity, mRefresher);
-        mMessagesAdapter.setOnContentChanged(this::maybeScrollToPendingMessage);
+        mMessagesAdapter.setOnContentChanged(this::onMessagesContentChanged);
         mRecyclerView.setAdapter(mMessagesAdapter);
         mRecyclerView.addOnItemTouchListener(new MessageSwipeTouchListener(activity));
         mRefresher.setOnRefreshListener(() -> {
@@ -1524,6 +1526,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         if (changed || reset) {
             if (changed) {
                 mPendingScrollSeq = 0;
+                mPendingScrollToLatest = false;
             }
             Bundle args = getArguments();
             if (args != null) {
@@ -1561,14 +1564,25 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         }
 
         mPendingScrollSeq = seqId;
-        maybeScrollToPendingMessage();
+        onMessagesContentChanged();
         return true;
     }
 
-    private void maybeScrollToPendingMessage() {
+    void scrollToLatestMessage() {
+        mPendingScrollToLatest = true;
+        onMessagesContentChanged();
+    }
+
+    private void onMessagesContentChanged() {
         if (mPendingScrollSeq > 0 && mMessagesAdapter != null &&
                 mMessagesAdapter.scrollToAndAnimate(mPendingScrollSeq)) {
             mPendingScrollSeq = 0;
+            return;
+        }
+
+        if (mPendingScrollToLatest && mMessagesAdapter != null && mMessagesAdapter.getItemCount() > 0) {
+            scrollToBottom(false);
+            mPendingScrollToLatest = false;
         }
     }
 

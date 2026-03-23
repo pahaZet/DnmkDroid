@@ -118,4 +118,39 @@
         android:minWidth="@dimen/min_touch_height"
         android:minHeight="@dimen/min_touch_height" />
 
+    <TextView
+        style="@style/sectionTitleStyle"
+        android:id="@+id/section_title_animation"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="8dp"
+        android:layout_below="@id/send_on_enter_label"
+        android:text="@string/animations" />
+
+    <TextView
+        android:id="@+id/ufade_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/section_title_animation"
+        android:layout_alignParentStart="true"
+        android:layout_toStartOf="@id/ufade_input"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/min_touch_height"
+        android:text="@string/settings_message_ufade"
+        android:textAppearance="?android:textAppearanceMedium" />
+
+    <EditText
+        android:id="@+id/ufade_input"
+        android:layout_width="88dp"
+        android:layout_height="wrap_content"
+        android:layout_alignBaseline="@id/ufade_label"
+        android:layout_alignBottom="@id/ufade_label"
+        android:layout_alignParentEnd="true"
+        android:ems="4"
+        android:gravity="end"
+        android:imeOptions="actionDone"
+        android:inputType="number"
+        android:minHeight="@dimen/min_touch_height" />
+
 </RelativeLayout>
