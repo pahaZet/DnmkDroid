@@ -15,15 +15,26 @@ import co.tinode.tindroid.account.Utils;
 class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
     static final String ARG_SEARCH_TERM = "searchTerm";
 
+    enum LoaderMode {
+        TINODE_PROFILE,
+        PHONE_BOOK
+    }
+
     private final int mID;
     private final Context mContext;
     private final CursorSwapper mAdapter;
+    private final LoaderMode mMode;
     private String mSearchTerm;
 
     ContactsLoaderCallback(int loaderID, Context context, CursorSwapper adapter) {
+        this(loaderID, context, adapter, LoaderMode.TINODE_PROFILE);
+    }
+
+    ContactsLoaderCallback(int loaderID, Context context, CursorSwapper adapter, LoaderMode mode) {
         mID = loaderID;
         mContext = context;
         mAdapter = adapter;
+        mMode = mode;
     }
 
     @NonNull
@@ -34,10 +45,15 @@ class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
             mSearchTerm = args != null ? args.getString(ARG_SEARCH_TERM) : null;
 
             String[] selectionArgs = null;
-            String selection = ContactsQuery.SELECTION;
+            String selection = mMode == LoaderMode.PHONE_BOOK ?
+                    ContactsQuery.SELECTION_PHONE_BOOK : ContactsQuery.SELECTION_TINODE_PROFILE;
+
             if (mSearchTerm != null) {
-                selection = ContactsQuery.SELECTION + ContactsQuery.SELECTION_FILTER;
-                selectionArgs = new String[]{mSearchTerm + "%"};
+                selection += mMode == LoaderMode.PHONE_BOOK ?
+                        ContactsQuery.SELECTION_FILTER_PHONE_BOOK : ContactsQuery.SELECTION_FILTER;
+                selectionArgs = mMode == LoaderMode.PHONE_BOOK ?
+                        new String[]{"%" + mSearchTerm + "%", "%" + mSearchTerm + "%"} :
+                        new String[]{mSearchTerm + "%"};
             }
 
             return new CursorLoader(mContext,
@@ -73,16 +89,25 @@ class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
      * in the {@link android.provider.ContactsContract.Contacts} class.
      */
     interface ContactsQuery {
-        // A content URI for the Contacts table
+        // A content URI for the Contacts table.
         Uri CONTENT_URI = ContactsContract.Data.CONTENT_URI;
 
         // The selection clause for the CursorLoader query. The search criteria defined here
         // restrict results to contacts that have a display name and are linked to visible groups.
-        String SELECTION = ContactsContract.Data.DISPLAY_NAME_PRIMARY + "<>'' AND " +
+        String SELECTION_TINODE_PROFILE = ContactsContract.Data.DISPLAY_NAME_PRIMARY + "<>'' AND " +
                 ContactsContract.Data.MIMETYPE + "='" + Utils.MIME_TINODE_PROFILE + "'";
+
+        // Restrict results to phone rows with non-empty display name.
+        String SELECTION_PHONE_BOOK = ContactsContract.Data.DISPLAY_NAME_PRIMARY + "<>'' AND " +
+                ContactsContract.Data.MIMETYPE + "='" +
+                ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE + "'";
 
         // Search by keystrokes.
         String SELECTION_FILTER = " AND " + ContactsContract.Data.DISPLAY_NAME_PRIMARY + " LIKE ?";
+
+        // Search by name or phone in phone book mode.
+        String SELECTION_FILTER_PHONE_BOOK = " AND (" + ContactsContract.Data.DISPLAY_NAME_PRIMARY +
+                " LIKE ? OR " + ContactsContract.Data.DATA1 + " LIKE ?)";
 
         // The desired sort order for the returned Cursor.
         String SORT_ORDER = ContactsContract.Data.SORT_KEY_PRIMARY;
@@ -90,6 +115,7 @@ class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
         // A list of columns that the Contacts Provider should return in the Cursor.
         String[] PROJECTION = {
                 ContactsContract.Data._ID,
+                ContactsContract.Data.CONTACT_ID,
                 ContactsContract.Data.LOOKUP_KEY,
                 ContactsContract.Data.DISPLAY_NAME_PRIMARY,
                 ContactsContract.Data.PHOTO_THUMBNAIL_URI,
@@ -101,12 +127,15 @@ class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
 
         // The query column numbers which map to each value in the projection
         int ID = 0;
-        // int LOOKUP_KEY = 1;
-        int DISPLAY_NAME = 2;
-        int PHOTO_THUMBNAIL_DATA = 3;
-        int IM_ADDRESS = 4;
+        int CONTACT_ID = 1;
+        // int LOOKUP_KEY = 2;
+        int DISPLAY_NAME = 3;
+        int PHOTO_THUMBNAIL_DATA = 4;
+        // Server user id in TINODE_PROFILE mode, phone number in PHONE_BOOK mode.
+        int IM_ADDRESS = 5;
+        int PHONE_NUMBER = 5;
 
-        int SORT_KEY = 5;
+        int SORT_KEY = 6;
     }
 
     interface CursorSwapper {

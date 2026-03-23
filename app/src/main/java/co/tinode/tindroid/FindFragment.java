@@ -124,7 +124,8 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
         rv.addItemDecoration(new HorizontalListDivider(activity));
         mAdapter = new FindAdapter(activity, new ContactClickListener());
 
-        mContactsLoaderCallback = new ContactsLoaderCallback(LOADER_ID, activity, mAdapter);
+        mContactsLoaderCallback = new ContactsLoaderCallback(LOADER_ID, activity, mAdapter,
+                ContactsLoaderCallback.LoaderMode.PHONE_BOOK);
 
         mAdapter.swapCursor(null, mSearchTerm);
         mAdapter.setContactsPermission(UiUtils.isPermissionGranted(activity, Manifest.permission.READ_CONTACTS));
