@@ -24,6 +24,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.provider.MediaStore;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
@@ -38,6 +39,7 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.EditText;
@@ -129,6 +131,10 @@ public class MessagesFragment extends Fragment implements MenuProvider {
     static final int MIN_DURATION = 2000;
     // Maximum duration of an audio recording in milliseconds.
     static final int MAX_DURATION = 600_000;
+    private static final long VIDEO_CAPTURE_LIMIT_HEADROOM = 2L * 1024 * 1024;
+    private static final float MESSAGE_SWIPE_MAX_ANGLE = 25f;
+    private static final float MESSAGE_SWIPE_TRIGGER_DP = 72f;
+    private static final float MESSAGE_SWIPE_MAX_DISTANCE_DP = 96f;
 
     private ComTopic<VxCard> mTopic;
 
@@ -241,7 +247,18 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
     private Uri mTempVideoUri = null;
     private final ActivityResultLauncher<Uri> mRecordVideoLauncher = registerForActivityResult(
-            new ActivityResultContracts.CaptureVideo(), success -> {
+            new ActivityResultContracts.CaptureVideo() {
+                @NonNull
+                @Override
+                public Intent createIntent(@NonNull Context context, @NonNull Uri input) {
+                    Intent intent = super.createIntent(context, input);
+                    long serverLimit = Cache.getTinode().getServerLimit(Tinode.MAX_FILE_UPLOAD_SIZE, 50L << 20);
+                    long sizeLimit = Math.max(8L << 20, serverLimit - VIDEO_CAPTURE_LIMIT_HEADROOM);
+                    intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1);
+                    intent.putExtra(MediaStore.EXTRA_SIZE_LIMIT, sizeLimit);
+                    return intent;
+                }
+            }, success -> {
                 if (!success) {
                     return;
                 }
@@ -373,6 +390,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         mRefresher = view.findViewById(R.id.swipe_refresher);
         mMessagesAdapter = new MessagesAdapter(activity, mRefresher);
         mRecyclerView.setAdapter(mMessagesAdapter);
+        mRecyclerView.addOnItemTouchListener(new MessageSwipeTouchListener(activity));
         mRefresher.setOnRefreshListener(() -> {
             MsgGetMeta query = mMessagesAdapter.loadPreviousPage();
             if (query != null) {
@@ -1562,12 +1580,12 @@ public class MessagesFragment extends Fragment implements MenuProvider {
                             AttachmentHandler.ARG_OPERATION_IMAGE, args);
                     if (op != null) {
                         op.getResult().addListener(() -> {
-                                    if (activity.isFinishing() || activity.isDestroyed()) {
-                                        return;
-                                    }
-                                    activity.syncAllMessages(true);
-                                    notifyDataSetChanged(false);
-                            }, ContextCompat.getMainExecutor(activity));
+                            if (activity.isFinishing() || activity.isDestroyed()) {
+                                return;
+                            }
+                            activity.syncAllMessages(true);
+                            notifyDataSetChanged(false);
+                        }, ContextCompat.getMainExecutor(activity));
                     }
                 }
             }
@@ -1698,6 +1716,185 @@ public class MessagesFragment extends Fragment implements MenuProvider {
             // Reset scratch counters.
             mBucketIndex = 0;
             mSamplesPerBucket = 0;
+        }
+    }
+
+    private class MessageSwipeTouchListener extends RecyclerView.SimpleOnItemTouchListener {
+        private final int mTouchSlop;
+        private final float mTriggerDistance;
+        private final float mMaxSwipeDistance;
+
+        private View mSwipeView;
+        private int mSwipedPosition = RecyclerView.NO_POSITION;
+        private float mDownX;
+        private float mDownY;
+        private boolean mSwipeCandidate;
+        private boolean mSwiping;
+
+        MessageSwipeTouchListener(@NonNull Context context) {
+            mTouchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+            float density = context.getResources().getDisplayMetrics().density;
+            mTriggerDistance = MESSAGE_SWIPE_TRIGGER_DP * density;
+            mMaxSwipeDistance = MESSAGE_SWIPE_MAX_DISTANCE_DP * density;
+        }
+
+        @Override
+        public boolean onInterceptTouchEvent(@NonNull RecyclerView recyclerView, @NonNull MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    startTracking(recyclerView, event);
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (!mSwipeCandidate) {
+                        return false;
+                    }
+                    if (mSwiping) {
+                        return true;
+                    }
+
+                    float dx = event.getX() - mDownX;
+                    float dy = event.getY() - mDownY;
+                    if (Math.abs(dx) < mTouchSlop && Math.abs(dy) < mTouchSlop) {
+                        return false;
+                    }
+                    if (!isHorizontalSwipe(dx, dy)) {
+                        resetTracking(false);
+                        return false;
+                    }
+
+                    mSwiping = true;
+                    recyclerView.requestDisallowInterceptTouchEvent(true);
+                    updateSwipe(dx);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (!mSwiping) {
+                        resetTracking(false);
+                    }
+                    break;
+                default:
+                    break;
+            }
+
+            return false;
+        }
+
+        @Override
+        public void onTouchEvent(@NonNull RecyclerView recyclerView, @NonNull MotionEvent event) {
+            if (!mSwiping) {
+                return;
+            }
+
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_MOVE:
+                    updateSwipe(event.getX() - mDownX);
+                    break;
+                case MotionEvent.ACTION_UP:
+                    finishSwipe();
+                    break;
+                case MotionEvent.ACTION_CANCEL:
+                    resetTracking(true);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        private void startTracking(@NonNull RecyclerView recyclerView, @NonNull MotionEvent event) {
+            resetTracking(false);
+
+            View child = recyclerView.findChildViewUnder(event.getX(), event.getY());
+            if (child == null) {
+                return;
+            }
+
+            int position = recyclerView.getChildAdapterPosition(child);
+            if (position == RecyclerView.NO_POSITION || mMessagesAdapter == null ||
+                    !mMessagesAdapter.canSwipeMessage(position)) {
+                return;
+            }
+
+            View swipeView = child.findViewById(R.id.content);
+            swipeView = swipeView != null ? swipeView : child;
+            Rect bounds = new Rect();
+            if (!swipeView.getGlobalVisibleRect(bounds) ||
+                    !bounds.contains(Math.round(event.getRawX()), Math.round(event.getRawY()))) {
+                return;
+            }
+
+            mSwipeView = swipeView;
+            mSwipedPosition = position;
+            mDownX = event.getX();
+            mDownY = event.getY();
+            mSwipeCandidate = true;
+        }
+
+        private boolean isHorizontalSwipe(float dx, float dy) {
+            if (Math.abs(dx) < mTouchSlop) {
+                return false;
+            }
+
+            double angle = Math.toDegrees(Math.atan2(Math.abs(dy), Math.abs(dx)));
+            return angle <= MESSAGE_SWIPE_MAX_ANGLE;
+        }
+
+        private void updateSwipe(float dx) {
+            if (mSwipeView == null) {
+                return;
+            }
+
+            float clamped = Math.max(-mMaxSwipeDistance, Math.min(dx, mMaxSwipeDistance));
+            mSwipeView.setTranslationX(clamped);
+        }
+
+        private void finishSwipe() {
+            if (mSwipeView == null) {
+                resetTracking(false);
+                return;
+            }
+
+            final View swipeView = mSwipeView;
+            final int position = mSwipedPosition;
+            final boolean triggerAction = Math.abs(swipeView.getTranslationX()) >= mTriggerDistance &&
+                    mMessagesAdapter != null && mMessagesAdapter.canSwipeMessage(position);
+
+            mSwipeView = null;
+            mSwipedPosition = RecyclerView.NO_POSITION;
+            mSwipeCandidate = false;
+            mSwiping = false;
+            if (mRecyclerView != null) {
+                mRecyclerView.requestDisallowInterceptTouchEvent(false);
+            }
+
+            swipeView.animate()
+                    .translationX(0f)
+                    .setDuration(150)
+                    .withEndAction(() -> {
+                        if (!triggerAction || mMessagesAdapter == null || !isAdded()) {
+                            return;
+                        }
+                        mMessagesAdapter.replyToMessage(position);
+                    })
+                    .start();
+        }
+
+        private void resetTracking(boolean animateBack) {
+            View swipeView = mSwipeView;
+            mSwipeView = null;
+            mSwipedPosition = RecyclerView.NO_POSITION;
+            mSwipeCandidate = false;
+            mSwiping = false;
+            if (mRecyclerView != null) {
+                mRecyclerView.requestDisallowInterceptTouchEvent(false);
+            }
+
+            if (swipeView != null) {
+                if (animateBack) {
+                    swipeView.animate().translationX(0f).setDuration(150).start();
+                } else {
+                    swipeView.setTranslationX(0f);
+                }
+            }
         }
     }
 

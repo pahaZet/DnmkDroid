@@ -48,7 +48,7 @@ static def gitVersionCode() {
     // If you are not compiling in a git directory and getting an error like
     // [A problem occurred evaluating root project 'master'. For input string: ""]
     // then just return your manually assigned error code like this:
-    return 12345
+    return 2026032202
 //    def process = "git rev-list --count HEAD".execute()
 //    return process.text.toInteger()
 }
@@ -57,7 +57,7 @@ static def gitVersionCode() {
 // For example, if the git tag is 'v0.20.0-rc1' then the version name will be '0.20.0-rc1'.
 static def gitVersionName() {
     // If you are not compiling in a git directory, you should manually assign version name:
-    return "MyVersionName"
+    return "2026.03.22.2"
 //    def process = "git describe --tags".execute()
 //    // Remove trailing CR and remove leading 'v' as in 'v1.2.3'
 //    return process.text.trim().substring(1)

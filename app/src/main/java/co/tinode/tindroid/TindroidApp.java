@@ -384,10 +384,10 @@ public class TindroidApp extends Application implements DefaultLifecycleObserver
                 NotificationManager.IMPORTANCE_HIGH);
         videoCall.setDescription(getString(R.string.video_call_channel_description));
         videoCall.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
-                        new AudioAttributes.Builder()
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                                .build());
+                new AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .build());
         videoCall.setVibrationPattern(new long[]{0, 1000, 500, 1000});
         videoCall.enableVibration(true);
         videoCall.enableLights(true);
@@ -400,7 +400,7 @@ public class TindroidApp extends Application implements DefaultLifecycleObserver
         }
     }
 
-//This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`
+    //This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`
     @OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
     public static synchronized SimpleCache getVideoCache() {
         String dirs = sContext.getCacheDir().getAbsolutePath();

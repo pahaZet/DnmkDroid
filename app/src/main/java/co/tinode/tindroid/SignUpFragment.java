@@ -86,10 +86,10 @@ public class SignUpFragment extends Fragment
         // Get avatar from the gallery or photo camera.
         fragment.findViewById(R.id.uploadAvatar).setOnClickListener(v ->
                 new AttachmentPickerDialog.Builder().
-                    setGalleryLauncher(mRequestAvatarLauncher).
-                    setCameraPreviewLauncher(mThumbTakePhotoLauncher, mRequestCameraPermissionLauncher).
-                    build().
-                    show(getChildFragmentManager()));
+                        setGalleryLauncher(mRequestAvatarLauncher).
+                        setCameraPreviewLauncher(mThumbTakePhotoLauncher, mRequestCameraPermissionLauncher).
+                        build().
+                        show(getChildFragmentManager()));
         // Handle click on the sign up button.
         fragment.findViewById(R.id.signUp).setOnClickListener(this);
 
@@ -107,7 +107,7 @@ public class SignUpFragment extends Fragment
 
         AvatarViewModel avatarVM = new ViewModelProvider(parent).get(AvatarViewModel.class);
         avatarVM.getAvatar().observe(getViewLifecycleOwner(), bmp ->
-            UiUtils.acceptAvatar(parent, parent.findViewById(R.id.imageAvatar), bmp)
+                UiUtils.acceptAvatar(parent, parent.findViewById(R.id.imageAvatar), bmp)
         );
     }
 
@@ -150,7 +150,7 @@ public class SignUpFragment extends Fragment
     // Configure email or phone field.
     private void setupCredentials(Activity activity, String[] methods) {
         if (methods == null || methods.length == 0) {
-            mCredMethods = new String[]{"email"};
+            mCredMethods = new String[]{"tel"}; // email
         } else {
             mCredMethods = methods;
         }
@@ -219,7 +219,7 @@ public class SignUpFragment extends Fragment
         }
 
         if (mCredMethods == null) {
-            mCredMethods = new String[]{"email"};
+            mCredMethods = new String[]{"tel"};
         }
 
         final ArrayList<Credential> credentials = new ArrayList<>();
@@ -277,6 +277,8 @@ public class SignUpFragment extends Fragment
         final ImageView avatar = parent.findViewById(R.id.imageAvatar);
         final Tinode tinode = Cache.getTinode();
         final VxCard theCard = new VxCard(fullName, description);
+        final String[] accountTags = Tinode.isValidTagValueFormat(login) ?
+                new String[]{Tinode.TAG_ALIAS + login} : null;
         Drawable dr = avatar.getDrawable();
         final Bitmap bmp;
         if (dr instanceof BitmapDrawable) {
@@ -287,81 +289,85 @@ public class SignUpFragment extends Fragment
         // This is called on the websocket thread.
         tinode.connect(hostName, tls, false)
                 .thenApply(new PromisedReply.SuccessListener<>() {
-                            @Override
-                            public PromisedReply<ServerMessage> onSuccess(ServerMessage ignored_msg) {
-                                return AttachmentHandler.uploadAvatar(theCard, bmp, "newacc");
-                            }
-                        })
+                    @Override
+                    public PromisedReply<ServerMessage> onSuccess(ServerMessage ignored_msg) {
+                        return AttachmentHandler.uploadAvatar(theCard, bmp, "newacc");
+                    }
+                })
                 .thenApply(new PromisedReply.SuccessListener<>() {
-                            @Override
-                            public PromisedReply<ServerMessage> onSuccess(ServerMessage ignored_msg) {
-                                // Try to create a new account.
-                                MetaSetDesc<VxCard, String> meta = new MetaSetDesc<>(theCard, null);
-                                meta.attachments = theCard.getPhotoRefs();
-                                return tinode.createAccountBasic(
-                                        login, password, true, null, meta,
-                                        credentials.toArray(new Credential[]{}));
-                            }
-                        })
+                    @Override
+                    public PromisedReply<ServerMessage> onSuccess(ServerMessage ignored_msg) {
+                        // Try to create a new account.
+                        MetaSetDesc<VxCard, String> meta = new MetaSetDesc<>(theCard, null);
+                        meta.attachments = theCard.getPhotoRefs();
+                        return tinode.createAccountBasic(
+                                login, password, true, accountTags, meta,
+                                credentials.toArray(new Credential[]{}));
+                    }
+                })
                 .thenApply(new PromisedReply.SuccessListener<>() {
-                            @Override
-                            public PromisedReply<ServerMessage> onSuccess(final ServerMessage msg) {
-                                UiUtils.updateAndroidAccount(parent, tinode.getMyId(),
-                                        AuthScheme.basicInstance(login, password).toString(),
-                                        tinode.getAuthToken(), tinode.getAuthTokenExpiration());
+                    @Override
+                    public PromisedReply<ServerMessage> onSuccess(final ServerMessage msg) {
+                        UiUtils.updateAndroidAccount(parent, tinode.getMyId(),
+                                AuthScheme.basicInstance(login, password).toString(),
+                                tinode.getAuthToken(), tinode.getAuthTokenExpiration());
 
-                                // Remove used avatar from the view model.
-                                new ViewModelProvider(parent).get(AvatarViewModel.class).clear();
+                        // Remove used avatar from the view model.
+                        new ViewModelProvider(parent).get(AvatarViewModel.class).clear();
 
-                                // Flip back to login screen on success;
-                                parent.runOnUiThread(() -> {
-                                    if (msg.ctrl.code >= 300 && msg.ctrl.text.contains("validate credentials")) {
-                                        signUp.setEnabled(true);
-                                        parent.showFragment(LoginActivity.FRAGMENT_CREDENTIALS, null);
-                                    } else {
-                                        // We are requesting immediate login with the new account.
-                                        // If the action succeeded, assume we have logged in.
-                                        tinode.setAutoLoginToken(tinode.getAuthToken());
-                                        UiUtils.onLoginSuccess(parent, signUp, tinode.getMyId());
-                                    }
-                                });
-                                return null;
-                            }
-                        })
-                .thenCatch(new PromisedReply.FailureListener<>() {
-                            @Override
-                            public PromisedReply<ServerMessage> onFailure(Exception err) {
-                                if (!SignUpFragment.this.isVisible() || parent.isFinishing() || parent.isDestroyed()) {
-                                    return null;
-                                }
-                                parent.runOnUiThread(() -> {
-                                    signUp.setEnabled(true);
-                                    if (err instanceof ServerResponseException) {
-                                        final String cause = ((ServerResponseException) err).getReason();
-                                        if (cause != null) {
-                                            switch (cause) {
-                                                case "auth":
-                                                    // Invalid login
-                                                    ((EditText) parent.findViewById(R.id.newLogin))
-                                                            .setError(getText(R.string.login_rejected));
-                                                    break;
-                                                case "email":
-                                                    // Duplicate email:
-                                                    ((EditText) parent.findViewById(R.id.email))
-                                                            .setError(getText(R.string.email_rejected));
-                                                    break;
-                                            }
-                                        }
-                                    } else {
-                                        Log.w(TAG, "Failed create account", err);
-                                        Toast.makeText(parent, parent.getString(R.string.action_failed),
-                                                Toast.LENGTH_SHORT).show();
-                                    }
-                                });
-                                parent.reportError(err, signUp, 0, R.string.error_new_account_failed);
-                                return null;
+                        // Flip back to login screen on success;
+                        parent.runOnUiThread(() -> {
+                            if (msg.ctrl.code >= 300 && msg.ctrl.text.contains("validate credentials")) {
+                                signUp.setEnabled(true);
+                                parent.showFragment(LoginActivity.FRAGMENT_CREDENTIALS, null);
+                            } else {
+                                // We are requesting immediate login with the new account.
+                                // If the action succeeded, assume we have logged in.
+                                tinode.setAutoLoginToken(tinode.getAuthToken());
+                                UiUtils.onLoginSuccess(parent, signUp, tinode.getMyId());
                             }
                         });
+                        return null;
+                    }
+                })
+                .thenCatch(new PromisedReply.FailureListener<>() {
+                    @Override
+                    public PromisedReply<ServerMessage> onFailure(Exception err) {
+                        if (!SignUpFragment.this.isVisible() || parent.isFinishing() || parent.isDestroyed()) {
+                            return null;
+                        }
+                        parent.runOnUiThread(() -> {
+                            signUp.setEnabled(true);
+                            if (err instanceof ServerResponseException) {
+                                final String cause = ((ServerResponseException) err).getReason();
+                                if (cause != null) {
+                                    switch (cause) {
+                                        case "auth":
+                                            // Invalid login
+                                            ((EditText) parent.findViewById(R.id.newLogin))
+                                                    .setError(getText(R.string.login_rejected));
+                                            break;
+                                        case "email":
+                                            // Duplicate email:
+                                            ((EditText) parent.findViewById(R.id.email))
+                                                    .setError(getText(R.string.email_rejected));
+                                            break;
+                                        case "tel":
+                                            ((PhoneEdit) parent.findViewById(R.id.phone))
+                                                    .setError(getText(R.string.phone_rejected));
+                                            break;
+                                    }
+                                }
+                            } else {
+                                Log.w(TAG, "Failed create account", err);
+                                Toast.makeText(parent, parent.getString(R.string.action_failed),
+                                        Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                        parent.reportError(err, signUp, 0, R.string.error_new_account_failed);
+                        return null;
+                    }
+                });
     }
 
     @Override

@@ -27,9 +27,9 @@ public class Const {
     public static final int EDIT_PREVIEW_LENGTH = 64;
 
     // Maximum linear dimensions of images.
-    static final int MAX_BITMAP_SIZE = 1024;
+    static final int MAX_BITMAP_SIZE = 2560;
     // Maximum linear dimensions of video poster.
-    static final int MAX_POSTER_SIZE = 640;
+    static final int MAX_POSTER_SIZE = 960;
     public static final int AVATAR_THUMBNAIL_DIM = 36; // dip
     // Image thumbnail in quoted replies and reply/forward previews.
     public static final int REPLY_THUMBNAIL_DIM = 36;
@@ -37,7 +37,7 @@ public class Const {
     public static final int REPLY_VIDEO_WIDTH = 48;
 
     // Image preview size in messages.
-    public static final int IMAGE_PREVIEW_DIM = 64;
+    public static final int IMAGE_PREVIEW_DIM = 256;
     public static final int MIN_AVATAR_SIZE = 8;
     public static final int MAX_AVATAR_SIZE = 384;
     // Maximum byte size of avatar sent in-band.

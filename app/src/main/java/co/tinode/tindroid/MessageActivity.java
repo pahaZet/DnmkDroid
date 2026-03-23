@@ -211,6 +211,7 @@ public class MessageActivity extends BaseActivity
             ab.setDisplayHomeAsUpEnabled(true);
             ab.setDisplayShowHomeEnabled(true);
         }
+        toolbar.setOnClickListener(v -> openTopicDetails());
         toolbar.setNavigationOnClickListener(v -> {
             if (isFragmentVisible(FRAGMENT_MESSAGES) || isFragmentVisible(FRAGMENT_INVALID)) {
                 Intent intent = new Intent(MessageActivity.this, ChatsActivity.class);
@@ -543,11 +544,11 @@ public class MessageActivity extends BaseActivity
                     }
                 })
                 .thenFinally(new PromisedReply.FinalListener() {
-            @Override
-            public void onFinally() {
-                setRefreshing(false);
-            }
-        });
+                    @Override
+                    public void onFinally() {
+                        setRefreshing(false);
+                    }
+                });
     }
 
     // Clean up everything related to the topic being replaced of removed.
@@ -593,7 +594,7 @@ public class MessageActivity extends BaseActivity
 
         int id = item.getItemId();
         if (id == R.id.action_view_contact) {
-            showFragment(FRAGMENT_INFO, null, true);
+            openTopicDetails();
             return true;
         } else if (mTopic != null) {
             if (id == R.id.action_archive) {
@@ -616,6 +617,13 @@ public class MessageActivity extends BaseActivity
         }
 
         return false;
+    }
+
+    private void openTopicDetails() {
+        if (mTopic == null || !mTopic.isValid() || !isFragmentVisible(FRAGMENT_MESSAGES)) {
+            return;
+        }
+        showFragment(FRAGMENT_INFO, null, true);
     }
 
     // Try to send all pending messages.
@@ -1166,7 +1174,7 @@ public class MessageActivity extends BaseActivity
             runOnUiThread(() -> {
                 if (mTopic != null) {
                     UiUtils.toolbarSetOnline(MessageActivity.this,
-                        mTopic.getOnline(), mTopic.getLastSeen());
+                            mTopic.getOnline(), mTopic.getLastSeen());
                 }
             });
 
