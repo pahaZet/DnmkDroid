@@ -151,6 +151,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
     private String mTopicName = null;
     private String mMessageToSend = null;
+    private int mPendingScrollSeq = 0;
     private boolean mChatInvitationShown = false;
 
     private boolean mSendOnEnter = false;
@@ -389,6 +390,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
         mRefresher = view.findViewById(R.id.swipe_refresher);
         mMessagesAdapter = new MessagesAdapter(activity, mRefresher);
+        mMessagesAdapter.setOnContentChanged(this::maybeScrollToPendingMessage);
         mRecyclerView.setAdapter(mMessagesAdapter);
         mRecyclerView.addOnItemTouchListener(new MessageSwipeTouchListener(activity));
         mRefresher.setOnRefreshListener(() -> {
@@ -1520,6 +1522,9 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         }
 
         if (changed || reset) {
+            if (changed) {
+                mPendingScrollSeq = 0;
+            }
             Bundle args = getArguments();
             if (args != null) {
                 mMessageToSend = args.getString(MESSAGE_TO_SEND);
@@ -1550,9 +1555,20 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         }
     }
 
-    void scrollToMessage(int seqId) {
-        if (mMessagesAdapter != null && seqId > 0) {
-            mMessagesAdapter.scrollToAndAnimate(seqId);
+    boolean scrollToMessage(int seqId) {
+        if (seqId <= 0) {
+            return false;
+        }
+
+        mPendingScrollSeq = seqId;
+        maybeScrollToPendingMessage();
+        return true;
+    }
+
+    private void maybeScrollToPendingMessage() {
+        if (mPendingScrollSeq > 0 && mMessagesAdapter != null &&
+                mMessagesAdapter.scrollToAndAnimate(mPendingScrollSeq)) {
+            mPendingScrollSeq = 0;
         }
     }
 

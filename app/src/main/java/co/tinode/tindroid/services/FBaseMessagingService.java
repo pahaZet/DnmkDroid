@@ -319,10 +319,12 @@ public class FBaseMessagingService extends FirebaseMessagingService {
             }
         }
 
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+        //intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+        //PendingIntent pendingIntent = PendingIntent.getActivity(this, requestCode, intent,
+                //PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, requestCode, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
         // MessageActivity will cancel all notifications by tag, which is just topic name.
         // All notifications receive the same id 0 because id is not used.
         nm.notify(topicName, 0, builder.setContentIntent(pendingIntent).build());

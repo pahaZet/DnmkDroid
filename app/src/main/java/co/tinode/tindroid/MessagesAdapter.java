@@ -141,6 +141,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
     private String mTopicName = null;
     private SparseBooleanArray mSelectedItems = null;
     private int mPagesToLoad;
+    @Nullable
+    private Runnable mOnContentChanged;
 
     private final MediaControl mMediaControl;
 
@@ -239,6 +241,10 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         };
 
         verifyStoragePermissions();
+    }
+
+    void setOnContentChanged(@Nullable Runnable onContentChanged) {
+        mOnContentChanged = onContentChanged;
     }
 
     // Generates formatted content:
@@ -867,10 +873,10 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
     }
 
     // Scroll to and animate message bubble.
-    void scrollToAndAnimate(int seq) {
+    boolean scrollToAndAnimate(int seq) {
         final int pos = findInCursor(mCursor, seq);
         if (pos < 0) {
-            return;
+            return false;
         }
 
         StoredMessage mm = getMessage(pos);
@@ -900,7 +906,9 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                 });
                 mRecyclerView.smoothScrollToPosition(pos);
             }
+            return true;
         }
+        return false;
     }
 
     @Override
@@ -1105,6 +1113,9 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                 }
                 if (cursor != null && position == 0) {
                     mRecyclerView.scrollToPosition(0);
+                }
+                if (mOnContentChanged != null) {
+                    mOnContentChanged.run();
                 }
             });
         }

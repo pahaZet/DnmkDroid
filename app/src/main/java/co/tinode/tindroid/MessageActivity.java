@@ -98,6 +98,9 @@ public class MessageActivity extends BaseActivity
     static final String FRAGMENT_FORWARD_TO = "forward_to";
 
     static final String TOPIC_NAME = "topicName";
+    static final String PENDING_TOPIC_NAME = "pendingTopicName";
+    static final String OPEN_MESSAGE_SEQ = "openMessageSeq";
+    private static final String INTENT_EXTRA_LAUNCH_HANDLED = "co.tinode.tindroid.LAUNCH_HANDLED";
 
     private static final int MESSAGES_TO_LOAD = 24;
 
@@ -172,6 +175,7 @@ public class MessageActivity extends BaseActivity
     private String mMessageText = null;
     private PausableSingleThreadExecutor mMessageSender = null;
     private String mTopicName = null;
+    private String mPendingTopicName = null;
     private ComTopic<VxCard> mTopic = null;
     private TListener mTopicEventListener;
     private LoginEventListener mTinodeListener;
@@ -198,6 +202,8 @@ public class MessageActivity extends BaseActivity
 
         if (savedInstanceState != null) {
             mTopicName = savedInstanceState.getString(TOPIC_NAME);
+            mPendingTopicName = savedInstanceState.getString(PENDING_TOPIC_NAME);
+            mOpenMessageSeq = savedInstanceState.getInt(OPEN_MESSAGE_SEQ, 0);
         }
 
         UiUtils.setupSystemToolbar(this);
@@ -244,6 +250,7 @@ public class MessageActivity extends BaseActivity
         tinode.addListener(mTinodeListener);
 
         mNoteReadHandler = new NoteHandler(this);
+        captureLaunchIntent(getIntent());
     }
 
     @Override
@@ -251,6 +258,7 @@ public class MessageActivity extends BaseActivity
         super.onNewIntent(intent);
 
         setIntent(intent);
+        captureLaunchIntent(intent);
     }
 
     @Override
@@ -259,35 +267,26 @@ public class MessageActivity extends BaseActivity
 
         // Intent with parameters passed on start of the activity.
         final Intent intent = getIntent();
+        captureLaunchIntent(intent);
 
         CharSequence text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
         mMessageText = TextUtils.isEmpty(text) ? null : text.toString();
         intent.putExtra(Intent.EXTRA_TEXT, (String) null);
 
-        // If topic name is not saved, get it from intent, internal or external.
-        String topicName = mTopicName;
-        if (TextUtils.isEmpty(mTopicName)) {
+        String topicName = !TextUtils.isEmpty(mPendingTopicName) ? mPendingTopicName : mTopicName;
+        if (TextUtils.isEmpty(topicName)) {
             topicName = readTopicNameFromIntent(intent);
         }
-        mOpenMessageSeq = intent.getIntExtra(Const.INTENT_EXTRA_SEQ, 0);
-        intent.removeExtra(Const.INTENT_EXTRA_SEQ);
 
         if (!changeTopic(topicName, false)) {
             Cache.setSelectedTopicName(null);
             finish();
             return;
         }
+        mPendingTopicName = null;
 
         if (mOpenMessageSeq > 0) {
-            final int seqToOpen = mOpenMessageSeq;
-            mOpenMessageSeq = 0;
-            getWindow().getDecorView().post(() -> {
-                MessagesFragment fragmsg = (MessagesFragment) getSupportFragmentManager()
-                        .findFragmentByTag(FRAGMENT_MESSAGES);
-                if (fragmsg != null) {
-                    fragmsg.scrollToMessage(seqToOpen);
-                }
-            });
+            getWindow().getDecorView().post(this::openPendingMessageIfPossible);
         }
 
         // Resume message sender.
@@ -327,6 +326,8 @@ public class MessageActivity extends BaseActivity
         super.onSaveInstanceState(outState);
 
         outState.putString(TOPIC_NAME, mTopicName);
+        outState.putString(PENDING_TOPIC_NAME, mPendingTopicName);
+        outState.putInt(OPEN_MESSAGE_SEQ, mOpenMessageSeq);
     }
 
     // Topic has changed. Update all the views with the new data.
@@ -429,10 +430,20 @@ public class MessageActivity extends BaseActivity
     private String readTopicNameFromIntent(Intent intent) {
         // Check if the activity was launched by internally-generated intent.
         String name = intent.getStringExtra(Const.INTENT_EXTRA_TOPIC);
+        if (TextUtils.isEmpty(name)) {
+            name = intent.getStringExtra("topic");
+        }
         if (!TextUtils.isEmpty(name)) {
             return name;
         }
-        name = Tinode.parseTinodeUrl(name);
+
+        Uri dataUri = intent.getData();
+        if (dataUri != null) {
+            name = Tinode.parseTinodeUrl(intent.getDataString());
+            if (!TextUtils.isEmpty(name)) {
+                return name;
+            }
+        }
 
         // Check if activity was launched from a background push notification.
         RemoteMessage msg = intent.getParcelableExtra("msg");
@@ -444,13 +455,14 @@ public class MessageActivity extends BaseActivity
         }
 
         // mTopicName is empty, so this is an external intent
-        Uri contactUri = intent.getData();
+        Uri contactUri = dataUri;
         if (contactUri != null) {
             Cursor cursor = null;
-            if (UiUtils.isPermissionGranted(this, Manifest.permission.READ_CONTACTS)) {
+            if (TextUtils.equals("content", contactUri.getScheme()) &&
+                    UiUtils.isPermissionGranted(this, Manifest.permission.READ_CONTACTS)) {
                 cursor = getContentResolver().query(contactUri,
                         new String[]{Utils.DATA_PID}, null, null, null);
-            } else {
+            } else if (TextUtils.equals("content", contactUri.getScheme())) {
                 mRequestPermissionLauncher.launch(new String[]{Manifest.permission.READ_CONTACTS,
                         Manifest.permission.WRITE_CONTACTS});
             }
@@ -467,6 +479,61 @@ public class MessageActivity extends BaseActivity
         }
 
         return name;
+    }
+
+    private void captureLaunchIntent(@Nullable Intent intent) {
+        if (intent == null || intent.getBooleanExtra(INTENT_EXTRA_LAUNCH_HANDLED, false)) {
+            return;
+        }
+
+        String topicName = readTopicNameFromIntent(intent);
+        if (TextUtils.isEmpty(topicName)) {
+            return;
+        }
+
+        mPendingTopicName = topicName;
+        int seqId = readMessageSeqFromIntent(intent);
+        if (seqId > 0) {
+            mOpenMessageSeq = seqId;
+        }
+        intent.putExtra(INTENT_EXTRA_LAUNCH_HANDLED, true);
+    }
+
+    private int readMessageSeqFromIntent(@NonNull Intent intent) {
+        int seqId = intent.getIntExtra(Const.INTENT_EXTRA_SEQ, 0);
+        if (seqId <= 0) {
+            seqId = intent.getIntExtra("seq", 0);
+        }
+        if (seqId > 0) {
+            return seqId;
+        }
+
+        String seqStr = intent.getStringExtra(Const.INTENT_EXTRA_SEQ);
+        if (TextUtils.isEmpty(seqStr)) {
+            seqStr = intent.getStringExtra("seq");
+        }
+        if (TextUtils.isEmpty(seqStr)) {
+            return 0;
+        }
+
+        try {
+            return Integer.parseInt(seqStr);
+        } catch (NumberFormatException ex) {
+            Log.w(TAG, "Invalid seq in intent: " + seqStr, ex);
+            return 0;
+        }
+    }
+
+    private void openPendingMessageIfPossible() {
+        if (mOpenMessageSeq <= 0) {
+            return;
+        }
+
+        MessagesFragment fragmsg = (MessagesFragment) getSupportFragmentManager()
+                .findFragmentByTag(FRAGMENT_MESSAGES);
+        if (fragmsg != null && fragmsg.scrollToMessage(mOpenMessageSeq)) {
+            mOpenMessageSeq = 0;
+        }
     }
 
     @Override
