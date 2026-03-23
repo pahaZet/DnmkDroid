@@ -181,6 +181,7 @@ public class MessageActivity extends BaseActivity
     // Notification settings.
     private boolean mSendTypingNotifications = false;
     private boolean mSendReadReceipts = false;
+    private int mOpenMessageSeq = 0;
 
     // Only for grp topics:
     // Keeps track of the known subscriptions for the given topic.
@@ -268,11 +269,25 @@ public class MessageActivity extends BaseActivity
         if (TextUtils.isEmpty(mTopicName)) {
             topicName = readTopicNameFromIntent(intent);
         }
+        mOpenMessageSeq = intent.getIntExtra(Const.INTENT_EXTRA_SEQ, 0);
+        intent.removeExtra(Const.INTENT_EXTRA_SEQ);
 
         if (!changeTopic(topicName, false)) {
             Cache.setSelectedTopicName(null);
             finish();
             return;
+        }
+
+        if (mOpenMessageSeq > 0) {
+            final int seqToOpen = mOpenMessageSeq;
+            mOpenMessageSeq = 0;
+            getWindow().getDecorView().post(() -> {
+                MessagesFragment fragmsg = (MessagesFragment) getSupportFragmentManager()
+                        .findFragmentByTag(FRAGMENT_MESSAGES);
+                if (fragmsg != null) {
+                    fragmsg.scrollToMessage(seqToOpen);
+                }
+            });
         }
 
         // Resume message sender.
@@ -416,9 +431,8 @@ public class MessageActivity extends BaseActivity
         String name = intent.getStringExtra(Const.INTENT_EXTRA_TOPIC);
         if (!TextUtils.isEmpty(name)) {
             return name;
-        } else {
-            name = Tinode.parseTinodeUrl(name);
         }
+        name = Tinode.parseTinodeUrl(name);
 
         // Check if activity was launched from a background push notification.
         RemoteMessage msg = intent.getParcelableExtra("msg");

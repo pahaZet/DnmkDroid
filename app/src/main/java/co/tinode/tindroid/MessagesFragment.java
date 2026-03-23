@@ -1550,6 +1550,12 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         }
     }
 
+    void scrollToMessage(int seqId) {
+        if (mMessagesAdapter != null && seqId > 0) {
+            mMessagesAdapter.scrollToAndAnimate(seqId);
+        }
+    }
+
     private int findItemPositionById(long id) {
         final int first = mMessageViewLayoutManager.findFirstVisibleItemPosition();
         final int last = mMessageViewLayoutManager.findLastVisibleItemPosition();
