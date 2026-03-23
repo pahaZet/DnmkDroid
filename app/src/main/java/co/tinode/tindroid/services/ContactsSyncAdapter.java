@@ -255,6 +255,7 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
 
         // Load contacts and send them to server as fnd.Private.
         SparseArray<ContactHolder> contactList = fetchContacts(getContext());
+        Log.d(TAG, "Fetched " + contactList.size() + " contacts from phone provider");
         StringBuilder contactsBuilder = new StringBuilder();
         for (int i = 0; i < contactList.size(); i++) {
             ContactHolder ch = contactList.get(contactList.keyAt(i));
@@ -270,7 +271,10 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
             String oldHash = getServerQueryHash(account);
             String newHash = hash(contacts);
 
-            if (!newHash.equals(oldHash)) {
+            Log.d(TAG, "Contacts hash: old=" + oldHash + ", new=" + newHash);
+
+            if (!newHash.equals(oldHash) || (extras != null && extras.getBoolean("force", false))) {
+                Log.d(TAG, "Hash changed or force sync, clearing sync marker");
                 // If the query has changed, clear the sync marker for a full sync.
                 // Otherwise we only going to get updated contacts.
                 lastSyncMarker = null;
@@ -293,27 +297,35 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
                 tinode.subscribe(Tinode.TOPIC_FND, null, null).getResult();
 
                 if (lastSyncMarker == null) {
+                    Log.d(TAG, "Performing full sync (sending contacts to server)");
                     // Send contacts list to the server only if it has changed since last update, i.e. a full
                     // update is performed.
-                    tinode.setMeta(Tinode.TOPIC_FND, new MsgSetMeta.Builder()
-                            .with(new MetaSetDesc(null, contacts)).build()).getResult();
+                    tinode.setMeta(Tinode.TOPIC_FND, new MsgSetMeta.Builder<String, String>()
+                            .with(new MetaSetDesc<String, String>(null, contacts)).build()).getResult();
                 }
 
+                Log.d(TAG, "Requesting meta from FND with marker: " + (lastSyncMarker != null ? lastSyncMarker.getTime() : "null"));
                 final MsgGetMeta meta = new MsgGetMeta(new MetaGetSub(lastSyncMarker, null));
                 PromisedReply<ServerMessage> future = tinode.getMeta(Tinode.TOPIC_FND, meta);
                 Date newSyncMarker = null;
                 if (future.waitResult()) {
-                    ServerMessage<?, ?, VxCard, PrivateType> pkt = future.getResult();
+                    ServerMessage<VxCard, PrivateType, VxCard, PrivateType> pkt = future.getResult();
                     if (pkt.meta != null && pkt.meta.sub != null) {
+                        Log.d(TAG, "Received " + pkt.meta.sub.length + " subscriptions from server");
                         // Fetch the list of updated contacts.
                         Collection<Subscription<VxCard, PrivateType>> updated = new ArrayList<>();
                         for (Subscription<VxCard, PrivateType> sub : pkt.meta.sub) {
                             if (Topic.isP2PType(sub.user)) {
                                 updated.add(sub);
+                            } else {
+                                Log.d(TAG, "Skipping non-P2P subscription: " + sub.user);
                             }
                         }
+                        Log.d(TAG, "Processing " + updated.size() + " P2P subscriptions");
                         newSyncMarker = ContactsManager.updateContacts(mContext, account, tinode,
                                 updated, lastSyncMarker, true);
+                    } else {
+                        Log.d(TAG, "No meta/sub in server response");
                     }
                 }
                 tinode.maybeDisconnect(true);
@@ -411,4 +423,3 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
         }
     }
 }
-
