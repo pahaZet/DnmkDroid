@@ -25,6 +25,8 @@ public class Const {
     public static final int QUOTED_REPLY_LENGTH = 64;
     // Length of quoted text when altering a message.
     public static final int EDIT_PREVIEW_LENGTH = 64;
+    // Maximum number of lines in the message input box.
+    public static final int MESSAGE_INPUT_MAX_LINES = 8;
 
     // Maximum linear dimensions of images.
     static final int MAX_BITMAP_SIZE = 2560;

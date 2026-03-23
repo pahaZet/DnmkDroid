@@ -465,6 +465,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         view.findViewById(R.id.cancelForwardingPreview).setOnClickListener(v -> cancelPreview(activity));
 
         EditText editor = view.findViewById(R.id.editMessage);
+        editor.setMaxLines(Const.MESSAGE_INPUT_MAX_LINES);
         ViewCompat.setOnReceiveContentListener(editor, SUPPORTED_MIME_TYPES, new StickerReceiver());
 
         // Send notification on key presses

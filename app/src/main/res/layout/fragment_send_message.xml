@@ -81,7 +81,6 @@
             android:imeOptions="actionSend"
             android:importantForAutofill="no"
             android:inputType="textMultiLine|textCapSentences"
-            android:maxLines="3"
             android:minHeight="?attr/listPreferredItemHeightSmall"
             android:textColor="?android:textColorPrimary" />
 

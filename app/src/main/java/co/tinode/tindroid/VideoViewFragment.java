@@ -164,11 +164,12 @@ public class VideoViewFragment extends Fragment implements MenuProvider {
         // Send message on button click.
         view.findViewById(R.id.chatSendButton).setOnClickListener(v -> sendVideo());
         // Send message on Enter.
-        ((EditText) view.findViewById(R.id.editMessage))
-                .setOnEditorActionListener((v, actionId, event) -> {
-                    sendVideo();
-                    return true;
-                });
+        EditText editor = view.findViewById(R.id.editMessage);
+        editor.setMaxLines(Const.MESSAGE_INPUT_MAX_LINES);
+        editor.setOnEditorActionListener((v, actionId, event) -> {
+            sendVideo();
+            return true;
+        });
 
         return view;
     }
