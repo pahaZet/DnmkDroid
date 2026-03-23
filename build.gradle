@@ -50,7 +50,8 @@ static def gitVersionCode() {
     // then just return your manually assigned error code like this:
     //  return 12345
     def process = "git rev-list --count HEAD".execute()
-    return process.text.toInteger()
+    def text = process.text.trim()
+    return text.isInteger() ? text.toInteger() : 1
 }
 
 // Use current git tag as a version name.
@@ -59,6 +60,10 @@ static def gitVersionName() {
     // If you are not compiling in a git directory, you should manually assign version name:
     //  return "MyVersionName"
     def process = "git describe --tags".execute()
-    // Remove trailing CR and remove leading 'v' as in 'v1.2.3'
-    return process.text.trim().substring(1)
+    def text = process.text.trim()
+    if (text.isEmpty()) {
+        return "0.0.1"
+    }
+    // Remove leading 'v' if present
+    return text.startsWith("v") ? text.substring(1) : text
 }
