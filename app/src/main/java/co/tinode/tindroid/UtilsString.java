@@ -152,7 +152,8 @@ public class UtilsString {
     }
 
     private static final Pattern sTelRegex = Pattern.compile(
-            "^(?:\\+?(\\d{1,3}))?[- (.]*(\\d{3})[- ).]*(\\d{3})[- .]*(\\d{2})[- .]*(\\d{2})?$",
+            //"^(?:\\+?(\\d{1,3}))?[- (.]*(\\d{3})[- ).]*(\\d{3})[- .]*(\\d{2})[- .]*(\\d{2})?$",
+            "^\\+?\\d[\\d\\s\\-\\(\\).]{8,}\\d$",
             Pattern.CASE_INSENSITIVE);
     /**
      * Checks (loosely) if the given string is a phone. If so, returns the phone number in a format
