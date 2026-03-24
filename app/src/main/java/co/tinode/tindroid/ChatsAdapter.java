@@ -4,7 +4,11 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Typeface;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.RelativeSizeSpan;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -14,6 +18,8 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -26,6 +32,7 @@ import androidx.recyclerview.selection.ItemDetailsLookup;
 import androidx.recyclerview.selection.ItemKeyProvider;
 import androidx.recyclerview.selection.SelectionTracker;
 import androidx.recyclerview.widget.RecyclerView;
+import co.tinode.tindroid.db.StoredMessage;
 import co.tinode.tindroid.db.StoredTopic;
 import co.tinode.tindroid.format.PreviewFormatter;
 import co.tinode.tindroid.media.VxCard;
@@ -42,6 +49,7 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
 
     private static int sColorOffline;
     private static int sColorOnline;
+    private static int sColorNew;
     private final ClickListener mClickListener;
     private List<ComTopic<VxCard>> mTopics;
     private HashMap<String, Integer> mTopicIndex;
@@ -63,6 +71,8 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
                 R.color.offline, context.getTheme());
         sColorOnline = ResourcesCompat.getColor(context.getResources(),
                 R.color.online, context.getTheme());
+        sColorNew = ResourcesCompat.getColor(context.getResources(),
+                R.color.online, context.getTheme());
     }
 
     void resetContent(Activity activity) {
@@ -76,11 +86,14 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
                         mTextFilter.filter((ComTopic) t));
 
         final HashMap<String, Integer> newTopicIndex = new HashMap<>(newTopics.size());
-        for (ComTopic t : newTopics) {
+        List<ComTopic<VxCard>> sortedTopics = new ArrayList<>(newTopics);
+        sortedTopics.sort(new TopicLastMessageComparator());
+
+        for (ComTopic t : sortedTopics) {
             newTopicIndex.put(t.getName(), newTopicIndex.size());
         }
 
-        mTopics = new ArrayList<>(newTopics);
+        mTopics = sortedTopics;
         mTopicIndex = newTopicIndex;
 
         activity.runOnUiThread(this::notifyDataSetChanged);
@@ -187,6 +200,85 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
 
         Object value = topic.getPriv().get(ChatsActivity.PRIV_ADDRESS_BOOK_NAME);
         return value instanceof CharSequence ? value.toString() : null;
+    }
+
+    private static boolean hasMessages(ComTopic<VxCard> topic, @Nullable Storage.Message msg) {
+        return msg != null || (topic != null && topic.getSeq() > 0);
+    }
+
+    @Nullable
+    private static Date getLastMessageDate(ComTopic<VxCard> topic, @Nullable Storage.Message msg) {
+        if (msg instanceof StoredMessage stored && stored.ts != null) {
+            return stored.ts;
+        }
+        if (topic != null && topic.getSeq() > 0) {
+            return topic.getTouched();
+        }
+        return null;
+    }
+
+    private static CharSequence formatDisplayName(Context context, @Nullable String baseName, boolean isNewChat) {
+        String title = !TextUtils.isEmpty(baseName) ? baseName : context.getString(R.string.placeholder_contact_title);
+        if (!isNewChat) {
+            return title;
+        }
+
+        SpannableStringBuilder builder = new SpannableStringBuilder(title).append(" ").append("new");
+        int start = builder.length() - 3;
+        builder.setSpan(new ForegroundColorSpan(sColorNew), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        builder.setSpan(new RelativeSizeSpan(0.72f), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return builder;
+    }
+
+    private static class TopicLastMessageComparator implements Comparator<ComTopic<VxCard>> {
+        @Override
+        public int compare(ComTopic<VxCard> left, ComTopic<VxCard> right) {
+            int pinDiff = Integer.compare(right.getPinnedRank(), left.getPinnedRank());
+            if (pinDiff != 0) {
+                return pinDiff;
+            }
+
+            Storage.Message leftMsg = Cache.getTinode().getLastMessage(left.getName());
+            Storage.Message rightMsg = Cache.getTinode().getLastMessage(right.getName());
+
+            boolean leftHasMessages = hasMessages(left, leftMsg);
+            boolean rightHasMessages = hasMessages(right, rightMsg);
+            if (leftHasMessages != rightHasMessages) {
+                return leftHasMessages ? -1 : 1;
+            }
+
+            Date leftDate = getLastMessageDate(left, leftMsg);
+            Date rightDate = getLastMessageDate(right, rightMsg);
+            if (leftDate != null || rightDate != null) {
+                if (leftDate == null) {
+                    return 1;
+                }
+                if (rightDate == null) {
+                    return -1;
+                }
+                int dateDiff = rightDate.compareTo(leftDate);
+                if (dateDiff != 0) {
+                    return dateDiff;
+                }
+            }
+
+            Date leftTouched = left.getTouched();
+            Date rightTouched = right.getTouched();
+            if (leftTouched != null || rightTouched != null) {
+                if (leftTouched == null) {
+                    return 1;
+                }
+                if (rightTouched == null) {
+                    return -1;
+                }
+                int touchedDiff = rightTouched.compareTo(leftTouched);
+                if (touchedDiff != 0) {
+                    return touchedDiff;
+                }
+            }
+
+            return left.getName().compareTo(right.getName());
+        }
     }
 
     interface ClickListener {
@@ -317,18 +409,19 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
 
             VxCard pub = topic.getPub();
             String addressBookName = getAddressBookName(topic);
+            boolean isNewChat = topic.getSeq() <= 0 && msg == null;
             if (!TextUtils.isEmpty(addressBookName)) {
-                name.setText(addressBookName);
+                name.setText(formatDisplayName(context, addressBookName, isNewChat));
                 name.setTypeface(null, Typeface.NORMAL);
             } else if (pub != null && pub.fn != null) {
-                name.setText(pub.fn);
+                name.setText(formatDisplayName(context, pub.fn, isNewChat));
                 name.setTypeface(null, Typeface.NORMAL);
             } else if (topic.isSlfType()) {
                 name.setText(R.string.self_topic_title);
                 name.setTypeface(null, Typeface.NORMAL);
             } else {
-                name.setText(R.string.placeholder_contact_title);
-                name.setTypeface(null, Typeface.ITALIC);
+                name.setText(formatDisplayName(context, context.getString(R.string.placeholder_contact_title), isNewChat));
+                name.setTypeface(null, isNewChat ? Typeface.NORMAL : Typeface.ITALIC);
             }
             Drafty content = (msg != null && !msg.isDeleted()) ? msg.getContent() : null;
             if (content != null) {
