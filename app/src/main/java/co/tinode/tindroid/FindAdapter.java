@@ -4,6 +4,7 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.database.Cursor;
+import android.graphics.drawable.Drawable;
 import android.graphics.Typeface;
 import android.telephony.PhoneNumberUtils;
 import android.text.SpannableString;
@@ -79,6 +80,14 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
 
     void setContactsPermission(boolean granted) {
         mPermissionGranted = granted;
+    }
+
+    void setSearchTerm(String searchTerm) {
+        if (TextUtils.equals(mSearchTerm, searchTerm)) {
+            return;
+        }
+        mSearchTerm = searchTerm;
+        notifyDataSetChanged();
     }
 
     @SuppressLint("NotifyDataSetChanged")
@@ -388,6 +397,10 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
             final String displayName = entry.displayName();
             final String unique = entry.id();
             final String description = entry.description();
+            final Context context = itemView.getContext();
+            final Drawable fallbackAvatar = UiUtils.avatarDrawable(context, null, displayName, unique, false);
+
+            avatar.setImageDrawable(fallbackAvatar);
 
             final int startIndex = UtilsString.indexOfSearchQuery(displayName, mSearchTerm);
 
@@ -425,22 +438,19 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
                 }
             }
 
-            Context context = itemView.getContext();
-            if (entry.pub() != null && entry.pub().photo != null) {
-                UiUtils.setAvatar(avatar, entry.pub(), unique, false);
-            } else if (photoUri != null) {
+            if (!TextUtils.isEmpty(photoUri)) {
                 Coil.imageLoader(context).enqueue(
                         new ImageRequest.Builder(context)
                             .data(photoUri)
-                            .placeholder(R.drawable.disk)
-                            .error(R.drawable.ic_broken_image_round)
+                            .placeholder(fallbackAvatar)
+                            .error(fallbackAvatar)
                             .target(avatar)
                             .scale(Scale.FIT)
                             .build());
-
+            } else if (entry.pub() != null) {
+                UiUtils.setAvatar(avatar, entry.pub(), unique, false);
             } else {
-                avatar.setImageDrawable(
-                        UiUtils.avatarDrawable(context, null, displayName, unique, false));
+                avatar.setImageDrawable(fallbackAvatar);
             }
 
             itemView.setOnClickListener(view -> clickListener.onClick(unique));
@@ -449,6 +459,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         private void bind(final FoundMember member) {
             final String userId = member.id;
 
+            avatar.setImageDrawable(null);
             UiUtils.setAvatar(avatar, member.pub, userId, false);
             if (member.pub != null) {
                 name.setText(member.pub.fn);

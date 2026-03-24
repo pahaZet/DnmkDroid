@@ -25,6 +25,7 @@ import co.tinode.tindroid.R;
 import co.tinode.tindroid.media.VxCard;
 import co.tinode.tinodesdk.ComTopic;
 import co.tinode.tinodesdk.Tinode;
+import co.tinode.tinodesdk.Topic;
 import co.tinode.tinodesdk.model.Subscription;
 import co.tinode.tinodesdk.model.TheCard;
 
@@ -63,9 +64,14 @@ public class ContactsManager {
             if (currentSyncMarker == null || (sub.updated != null && sub.updated.after(currentSyncMarker))) {
                 currentSyncMarker = sub.updated;
 
+                String userId = getFoundSubscriptionId(sub);
+                if (TextUtils.isEmpty(userId)) {
+                    continue;
+                }
+
                 // Send updated contact to database.
                 processContact(context, resolver, account, tinode,
-                        sub.pub, sub.priv, sub.user, sub.deleted != null,
+                        sub.pub, sub.priv, userId, sub.deleted != null,
                         batchOperation, isSyncContext);
 
                 // A sync adapter should batch operations on multiple contacts,
@@ -482,6 +488,19 @@ public class ContactsManager {
             case WORK, BUSINESS -> Phone.TYPE_WORK;
             default -> Phone.TYPE_OTHER;
         };
+    }
+
+    private static String getFoundSubscriptionId(Subscription<?, ?> sub) {
+        if (sub == null) {
+            return null;
+        }
+        if (Topic.isP2PType(sub.user)) {
+            return sub.user;
+        }
+        if (Topic.isP2PType(sub.topic)) {
+            return sub.topic;
+        }
+        return sub.user;
     }
 
     /**

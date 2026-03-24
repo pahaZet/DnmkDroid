@@ -4,6 +4,10 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.drawable.Drawable;
+import android.provider.ContactsContract;
 import android.text.SpannableString;
 import android.text.TextUtils;
 import android.text.style.TextAppearanceSpan;
@@ -17,13 +21,10 @@ import android.widget.SectionIndexer;
 import android.widget.TextView;
 
 import java.util.HashMap;
+import java.util.HashSet;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-
-import coil.Coil;
-import coil.request.ImageRequest;
-import coil.size.Scale;
 
 /**
  * This is a subclass of CursorAdapter that supports binding Cursor columns to a view layout.
@@ -39,6 +40,8 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
     private final ClickListener mClickListener;
     // Selected items
     private final HashMap<String, Integer> mSelected;
+    private final HashMap<Long, Bitmap> mAvatarCache;
+    private final HashSet<Long> mAvatarMissing;
     private String mSearchTerm;
     private Cursor mCursor;
     private boolean mPermissionGranted = false;
@@ -47,6 +50,8 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
 
         mClickListener = clickListener;
         mSelected = new HashMap<>();
+        mAvatarCache = new HashMap<>();
+        mAvatarMissing = new HashSet<>();
 
         setHasStableIds(true);
         mCursor = null;
@@ -95,6 +100,13 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
         }
     }
 
+    @Override
+    public void onViewRecycled(@NonNull ViewHolder holder) {
+        if (holder.viewType == R.layout.contact_basic) {
+            holder.resetSwitcher();
+        }
+    }
+
     void setContactsPermissionGranted() {
         mPermissionGranted = true;
     }
@@ -114,6 +126,8 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
         mAlphabetIndexer.setCursor(newCursor);
 
         mCursor = newCursor;
+        mAvatarCache.clear();
+        mAvatarMissing.clear();
 
         // Notify the observers about the new cursor
         notifyDataSetChanged();
@@ -206,17 +220,19 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
     }
 
     interface ClickListener {
-        void onClick(int position, String unique, String displayName, String photoUri);
+        void onClick(int position, String unique, String displayName, Bitmap avatarBitmap);
     }
 
     class ViewHolder extends RecyclerView.ViewHolder {
         final int viewType;
         String unique;
-        String photoUri;
         String displayName;
+        Bitmap avatarBitmap;
         TextView text1;
         TextView text2;
         ImageSwitcher switcher;
+        ImageView avatarView;
+        ImageView selectedView;
 
         ViewHolder(@NonNull final View view, int viewType) {
             super(view);
@@ -229,7 +245,18 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
                 switcher = view.findViewById(R.id.icon_switcher);
                 switcher.setInAnimation(context, R.anim.flip_in);
                 switcher.setOutAnimation(context, R.anim.flip_out);
+                avatarView = (ImageView) switcher.getChildAt(0);
+                selectedView = (ImageView) switcher.getChildAt(1);
+                selectedView.setImageResource(R.drawable.ic_selected);
             }
+        }
+
+        private void resetSwitcher() {
+            if (switcher == null) {
+                return;
+            }
+            avatarView.setImageDrawable(null);
+            switcher.setDisplayedChild(0);
         }
 
         void bind(Cursor cursor, final int position) {
@@ -238,9 +265,12 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
             }
 
             // Get the thumbnail image Uri from the current Cursor row.
-            photoUri = cursor.getString(ContactsLoaderCallback.ContactsQuery.PHOTO_THUMBNAIL_DATA);
             displayName = cursor.getString(ContactsLoaderCallback.ContactsQuery.DISPLAY_NAME);
             unique = cursor.getString(ContactsLoaderCallback.ContactsQuery.IM_ADDRESS);
+            long rawContactId = cursor.getLong(ContactsLoaderCallback.ContactsQuery.RAW_CONTACT_ID);
+            avatarBitmap = getAvatarBitmap(itemView.getContext(), rawContactId);
+            final Context context = itemView.getContext();
+            final Drawable fallbackAvatar = UiUtils.avatarDrawable(context, avatarBitmap, displayName, unique, false);
 
             final int startIndex = UtilsString.indexOfSearchQuery(displayName, mSearchTerm);
 
@@ -282,26 +312,16 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
             }
 
             if (isSelected(unique)) {
-                ((ImageView) switcher.getCurrentView()).setImageResource(R.drawable.ic_selected);
+                if (switcher.getDisplayedChild() != 1) {
+                    switcher.setDisplayedChild(1);
+                }
                 itemView.setBackgroundResource(R.drawable.contact_background);
 
                 itemView.setActivated(true);
             } else {
-                ImageView icon = (ImageView) switcher.getCurrentView();
-                Context context = icon.getContext();
-                if (photoUri != null) {
-                    // Clear the icon then load the thumbnail from photoUri background.
-                    Coil.imageLoader(context).enqueue(
-                            new ImageRequest.Builder(context)
-                                .data(photoUri)
-                                .placeholder(R.drawable.disk)
-                                .error(R.drawable.ic_broken_image_round)
-                                .scale(Scale.FIT)
-                                .target(icon)
-                                .build());
-                } else {
-                    icon.setImageDrawable(
-                            UiUtils.avatarDrawable(icon.getContext(), null, displayName, unique, false));
+                avatarView.setImageDrawable(fallbackAvatar);
+                if (switcher.getDisplayedChild() != 0) {
+                    switcher.setDisplayedChild(0);
                 }
 
                 TypedArray typedArray = itemView.getContext().obtainStyledAttributes(
@@ -313,26 +333,56 @@ class ContactsAdapter extends RecyclerView.Adapter<ContactsAdapter.ViewHolder>
             }
 
             if (mClickListener != null) {
-                itemView.setOnClickListener(view -> {
-                    mClickListener.onClick(position, unique, displayName, photoUri);
-                    if (isSelected(unique)) {
-                        ViewHolder.this.switcher.setImageResource(R.drawable.ic_selected);
-                    } else if (photoUri != null) {
-                        Context context = switcher.getContext();
-                        Coil.imageLoader(context).enqueue(
-                                new ImageRequest.Builder(context)
-                                    .data(photoUri)
-                                    .placeholder(R.drawable.disk)
-                                    .error(R.drawable.ic_broken_image_round)
-                                    .scale(Scale.FIT)
-                                    .target((ImageView) switcher.getNextView()).build());
-                    } else {
-                        switcher.setImageDrawable(
-                                UiUtils.avatarDrawable(switcher.getContext(), null, displayName, unique,
-                                        false));
-                    }
-                });
+                itemView.setOnClickListener(view -> mClickListener.onClick(position, unique, displayName, avatarBitmap));
             }
+        }
+    }
+
+    private Bitmap getAvatarBitmap(Context context, long rawContactId) {
+        if (rawContactId <= 0) {
+            return null;
+        }
+        Bitmap cached = mAvatarCache.get(rawContactId);
+        if (cached != null) {
+            return cached;
+        }
+        if (mAvatarMissing.contains(rawContactId)) {
+            return null;
+        }
+
+        Cursor cursor = context.getContentResolver().query(
+                ContactsContract.Data.CONTENT_URI,
+                new String[]{ContactsContract.CommonDataKinds.Photo.PHOTO},
+                ContactsContract.Data.RAW_CONTACT_ID + "=? AND " +
+                        ContactsContract.Data.MIMETYPE + "='" +
+                        ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE + "'",
+                new String[]{String.valueOf(rawContactId)},
+                null);
+        if (cursor == null) {
+            mAvatarMissing.add(rawContactId);
+            return null;
+        }
+
+        try (cursor) {
+            if (!cursor.moveToFirst()) {
+                mAvatarMissing.add(rawContactId);
+                return null;
+            }
+
+            byte[] data = cursor.getBlob(0);
+            if (data == null || data.length == 0) {
+                mAvatarMissing.add(rawContactId);
+                return null;
+            }
+
+            Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
+            if (bitmap == null) {
+                mAvatarMissing.add(rawContactId);
+                return null;
+            }
+
+            mAvatarCache.put(rawContactId, bitmap);
+            return bitmap;
         }
     }
 }

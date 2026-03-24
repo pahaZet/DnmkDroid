@@ -97,9 +97,9 @@ public class EditMembersFragment extends Fragment {
         rv.setLayoutManager(new LinearLayoutManager(activity));
         rv.setHasFixedSize(false);
         rv.addItemDecoration(new HorizontalListDivider(activity));
-        mContactsAdapter = new ContactsAdapter(activity, (position, unique, displayName, photoUri) -> {
+        mContactsAdapter = new ContactsAdapter(activity, (position, unique, displayName, avatarBitmap) -> {
             if (!mContactsAdapter.isSelected(unique)) {
-                mSelectedAdapter.append(position, unique, displayName, photoUri);
+                mSelectedAdapter.append(position, unique, displayName, avatarBitmap);
                 mContactsAdapter.toggleSelected(unique, position);
             } else {
                 if (mSelectedAdapter.remove(unique)) {

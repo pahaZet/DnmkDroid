@@ -101,6 +101,10 @@ public class MembersAdapter extends RecyclerView.Adapter<MembersAdapter.ViewHold
         append(new Member(pos, unique, displayName, avatar, true));
     }
 
+    void append(int pos, String unique, String displayName, Bitmap avatarBitmap) {
+        append(new Member(pos, unique, displayName, avatarBitmap, true));
+    }
+
     private void append(Member user) {
         // Ensure uniqueness.
         for (int i = 0; i < mCurrentMembers.size(); i++) {
@@ -180,6 +184,15 @@ public class MembersAdapter extends RecyclerView.Adapter<MembersAdapter.ViewHold
             } else {
                 this.avatarUri = null;
             }
+        }
+
+        Member(int position, String unique, String displayName, Bitmap avatarBitmap, boolean removable) {
+            this.position = position;
+            this.unique = unique;
+            this.removable = removable;
+            this.displayName = displayName;
+            this.avatarBitmap = avatarBitmap;
+            this.avatarUri = null;
         }
 
         Member(int position, String unique, VxCard pub, boolean removable) {

@@ -43,7 +43,6 @@ import co.tinode.tinodesdk.model.MetaGetSub;
 import co.tinode.tinodesdk.model.MetaSetDesc;
 import co.tinode.tinodesdk.model.MsgGetMeta;
 import co.tinode.tinodesdk.model.MsgSetMeta;
-import co.tinode.tinodesdk.model.PrivateType;
 import co.tinode.tinodesdk.model.ServerMessage;
 import co.tinode.tinodesdk.model.Subscription;
 
@@ -61,6 +60,7 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
 
     private static final String ACCKEY_SYNC_MARKER = "co.tinode.tindroid.sync_marker_contacts";
     private static final String ACCKEY_QUERY_HASH = "co.tinode.tindroid.sync_query_hash_contacts";
+    private static final String ACCKEY_APPLIED_QUERY_HASH = "co.tinode.tindroid.sync_applied_query_hash_contacts";
 
     // Context for loading preferences
     private final Context mContext;
@@ -270,11 +270,13 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
             String contacts = contactsBuilder.toString();
             String oldHash = getServerQueryHash(account);
             String newHash = hash(contacts);
+            String appliedHash = getAppliedQueryHash(account);
 
             Log.d(TAG, "Contacts hash: old=" + oldHash + ", new=" + newHash);
 
-            if (!newHash.equals(oldHash) || (extras != null && extras.getBoolean("force", false))) {
-                Log.d(TAG, "Hash changed or force sync, clearing sync marker");
+            if (!newHash.equals(oldHash) || !newHash.equals(appliedHash) ||
+                    (extras != null && extras.getBoolean("force", false))) {
+                Log.d(TAG, "Hash changed, not applied, or force sync requested, clearing sync marker");
                 // If the query has changed, clear the sync marker for a full sync.
                 // Otherwise we only going to get updated contacts.
                 lastSyncMarker = null;
@@ -309,16 +311,17 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
                 PromisedReply<ServerMessage> future = tinode.getMeta(Tinode.TOPIC_FND, meta);
                 Date newSyncMarker = null;
                 if (future.waitResult()) {
-                    ServerMessage<VxCard, PrivateType, VxCard, PrivateType> pkt = future.getResult();
+                    ServerMessage<VxCard, String[], VxCard, String[]> pkt = future.getResult();
                     if (pkt.meta != null && pkt.meta.sub != null) {
                         Log.d(TAG, "Received " + pkt.meta.sub.length + " subscriptions from server");
                         // Fetch the list of updated contacts.
-                        Collection<Subscription<VxCard, PrivateType>> updated = new ArrayList<>();
-                        for (Subscription<VxCard, PrivateType> sub : pkt.meta.sub) {
-                            if (Topic.isP2PType(sub.user)) {
+                        Collection<Subscription<VxCard, String[]>> updated = new ArrayList<>();
+                        for (Subscription<VxCard, String[]> sub : pkt.meta.sub) {
+                            String topicOrUser = getFoundSubscriptionId(sub);
+                            if (Topic.isP2PType(topicOrUser)) {
                                 updated.add(sub);
                             } else {
-                                Log.d(TAG, "Skipping non-P2P subscription: " + sub.user);
+                                Log.d(TAG, "Skipping non-P2P subscription: user=" + sub.user + ", topic=" + sub.topic);
                             }
                         }
                         Log.d(TAG, "Processing " + updated.size() + " P2P subscriptions");
@@ -330,6 +333,7 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
                 }
                 tinode.maybeDisconnect(true);
                 setServerSyncMarker(account, newSyncMarker != null ? newSyncMarker : new Date());
+                setAppliedQueryHash(account, newHash);
                 success = true;
             } catch (IOException e) {
                 Log.e(TAG, "Network error while syncing contacts", e);
@@ -368,10 +372,33 @@ class ContactsSyncAdapter extends AbstractThreadedSyncAdapter {
         return mAccountManager.getUserData(account, ACCKEY_QUERY_HASH);
     }
 
+    private String getAppliedQueryHash(Account account) {
+        return mAccountManager.getUserData(account, ACCKEY_APPLIED_QUERY_HASH);
+    }
+
+    private static String getFoundSubscriptionId(Subscription<?, ?> sub) {
+        if (sub == null) {
+            return null;
+        }
+        if (Topic.isP2PType(sub.user)) {
+            return sub.user;
+        }
+        if (Topic.isP2PType(sub.topic)) {
+            return sub.topic;
+        }
+        return null;
+    }
+
     private void setServerQueryHash(Account account, String hash) {
         // The hash could be empty if user has no contacts
         if (hash != null && !hash.isEmpty()) {
             mAccountManager.setUserData(account, ACCKEY_QUERY_HASH, hash);
+        }
+    }
+
+    private void setAppliedQueryHash(Account account, String hash) {
+        if (hash != null && !hash.isEmpty()) {
+            mAccountManager.setUserData(account, ACCKEY_APPLIED_QUERY_HASH, hash);
         }
     }
 

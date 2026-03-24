@@ -146,9 +146,9 @@ public class CreateGroupFragment extends Fragment implements UtilsMedia.MediaPre
         rv.addItemDecoration(new HorizontalListDivider(activity));
         rv.setNestedScrollingEnabled(false);
 
-        mContactsAdapter = new ContactsAdapter(activity, (position, unique, displayName, photoUri) -> {
+        mContactsAdapter = new ContactsAdapter(activity, (position, unique, displayName, avatarBitmap) -> {
             if (!mContactsAdapter.isSelected(unique)) {
-                mSelectedAdapter.append(position, unique, displayName, photoUri);
+                mSelectedAdapter.append(position, unique, displayName, avatarBitmap);
             } else {
                 mSelectedAdapter.remove(unique);
             }

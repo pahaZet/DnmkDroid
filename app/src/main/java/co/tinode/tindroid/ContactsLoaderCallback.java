@@ -5,6 +5,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.ContactsContract;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.loader.app.LoaderManager;
@@ -13,6 +14,7 @@ import androidx.loader.content.Loader;
 import co.tinode.tindroid.account.Utils;
 
 class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
+    private static final String TAG = "ContactsLoader";
     static final String ARG_SEARCH_TERM = "searchTerm";
 
     enum LoaderMode {
@@ -37,23 +39,24 @@ class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
         mMode = mode;
     }
 
+    void setSearchTerm(String searchTerm) {
+        mSearchTerm = searchTerm;
+    }
+
     @NonNull
     @Override
     public Loader<Cursor> onCreateLoader(int id, Bundle args) {
         // If this is the loader for finding contacts in the Contacts Provider
         if (id == mID) {
-            mSearchTerm = args != null ? args.getString(ARG_SEARCH_TERM) : null;
+            mSearchTerm = args != null ? args.getString(ARG_SEARCH_TERM) : mSearchTerm;
 
             String[] selectionArgs = null;
             String selection = mMode == LoaderMode.PHONE_BOOK ?
                     ContactsQuery.SELECTION_PHONE_BOOK : ContactsQuery.SELECTION_TINODE_PROFILE;
 
-            if (mSearchTerm != null) {
-                selection += mMode == LoaderMode.PHONE_BOOK ?
-                        ContactsQuery.SELECTION_FILTER_PHONE_BOOK : ContactsQuery.SELECTION_FILTER;
-                selectionArgs = mMode == LoaderMode.PHONE_BOOK ?
-                        new String[]{"%" + mSearchTerm + "%", "%" + mSearchTerm + "%"} :
-                        new String[]{mSearchTerm + "%"};
+            if (mSearchTerm != null && mMode != LoaderMode.PHONE_BOOK) {
+                selection += ContactsQuery.SELECTION_FILTER;
+                selectionArgs = new String[]{mSearchTerm + "%"};
             }
 
             return new CursorLoader(mContext,
@@ -71,6 +74,7 @@ class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
     public void onLoadFinished(@NonNull Loader<Cursor> loader, Cursor data) {
         // This swaps the new cursor into the adapter.
         if (loader.getId() == mID) {
+            logLoadedContacts(data);
             mAdapter.swapCursor(data, mSearchTerm);
         }
     }
@@ -116,6 +120,7 @@ class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
         String[] PROJECTION = {
                 ContactsContract.Data._ID,
                 ContactsContract.Data.CONTACT_ID,
+                ContactsContract.Data.RAW_CONTACT_ID,
                 ContactsContract.Data.LOOKUP_KEY,
                 ContactsContract.Data.DISPLAY_NAME_PRIMARY,
                 ContactsContract.Data.PHOTO_THUMBNAIL_URI,
@@ -128,17 +133,48 @@ class ContactsLoaderCallback implements LoaderManager.LoaderCallbacks<Cursor> {
         // The query column numbers which map to each value in the projection
         int ID = 0;
         int CONTACT_ID = 1;
-        // int LOOKUP_KEY = 2;
-        int DISPLAY_NAME = 3;
-        int PHOTO_THUMBNAIL_DATA = 4;
+        int RAW_CONTACT_ID = 2;
+        // int LOOKUP_KEY = 3;
+        int DISPLAY_NAME = 4;
+        int PHOTO_THUMBNAIL_DATA = 5;
         // Server user id in TINODE_PROFILE mode, phone number in PHONE_BOOK mode.
-        int IM_ADDRESS = 5;
-        int PHONE_NUMBER = 5;
+        int IM_ADDRESS = 6;
+        int PHONE_NUMBER = 6;
 
-        int SORT_KEY = 6;
+        int SORT_KEY = 7;
     }
 
     interface CursorSwapper {
         void swapCursor(Cursor cursor, String searchQuery);
+    }
+
+    private void logLoadedContacts(Cursor cursor) {
+        if (cursor == null) {
+            Log.d(TAG, "mode=" + mMode + ": cursor is null");
+            return;
+        }
+
+        int oldPosition = cursor.getPosition();
+        Log.d(TAG, "mode=" + mMode + ": loaded " + cursor.getCount() + " rows");
+        for (cursor.moveToFirst(); !cursor.isAfterLast(); cursor.moveToNext()) {
+            long contactId = cursor.getLong(ContactsQuery.CONTACT_ID);
+            long rawContactId = cursor.getLong(ContactsQuery.RAW_CONTACT_ID);
+            String lookupKey = cursor.getString(3);
+            String displayName = cursor.getString(ContactsQuery.DISPLAY_NAME);
+            String address = cursor.getString(ContactsQuery.IM_ADDRESS);
+            String photoThumbUri = cursor.getString(ContactsQuery.PHOTO_THUMBNAIL_DATA);
+            Uri lookupUri = ContactsContract.Contacts.getLookupUri(contactId, lookupKey);
+
+            Log.d(TAG, "mode=" + mMode
+                    + ", rowId=" + cursor.getLong(ContactsQuery.ID)
+                    + ", contactId=" + contactId
+                    + ", rawContactId=" + rawContactId
+                    + ", lookupKey=" + lookupKey
+                    + ", lookupUri=" + lookupUri
+                    + ", displayName=" + displayName
+                    + ", address=" + address
+                    + ", photoThumbnailUri=" + photoThumbUri);
+        }
+        cursor.moveToPosition(oldPosition);
     }
 }
