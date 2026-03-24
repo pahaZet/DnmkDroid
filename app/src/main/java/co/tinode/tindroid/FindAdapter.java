@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.recyclerview.widget.RecyclerView;
 
 import co.tinode.tindroid.media.VxCard;
@@ -34,6 +35,7 @@ import co.tinode.tinodesdk.model.Subscription;
 import coil.Coil;
 import coil.request.ImageRequest;
 import coil.size.Scale;
+import coil.target.Target;
 
 /**
  * FindAdapter merges results from searching local Contacts with remote 'fnd' topic.
@@ -148,6 +150,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         if (holder instanceof ViewHolderItem) {
             ImageView avatar = ((ViewHolderItem) holder).avatar;
             if (avatar != null) {
+                avatar.setTag(R.id.avatar, null);
                 avatar.setImageDrawable(null);
             }
         }
@@ -399,7 +402,9 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
             final String description = entry.description();
             final Context context = itemView.getContext();
             final Drawable fallbackAvatar = UiUtils.avatarDrawable(context, null, displayName, unique, false);
+            final String avatarRequestKey = "addressbook:" + entry.stableKey();
 
+            avatar.setTag(R.id.avatar, avatarRequestKey);
             avatar.setImageDrawable(fallbackAvatar);
 
             final int startIndex = UtilsString.indexOfSearchQuery(displayName, mSearchTerm);
@@ -444,7 +449,28 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
                             .data(photoUri)
                             .placeholder(fallbackAvatar)
                             .error(fallbackAvatar)
-                            .target(avatar)
+                            .target(new Target() {
+                                @Override
+                                public void onStart(@Nullable Drawable placeholder) {
+                                    if (matchesAvatarRequest(avatar, avatarRequestKey)) {
+                                        avatar.setImageDrawable(placeholder != null ? placeholder : fallbackAvatar);
+                                    }
+                                }
+
+                                @Override
+                                public void onSuccess(@NonNull Drawable result) {
+                                    if (matchesAvatarRequest(avatar, avatarRequestKey)) {
+                                        avatar.setImageDrawable(result);
+                                    }
+                                }
+
+                                @Override
+                                public void onError(@Nullable Drawable error) {
+                                    if (matchesAvatarRequest(avatar, avatarRequestKey)) {
+                                        avatar.setImageDrawable(error != null ? error : fallbackAvatar);
+                                    }
+                                }
+                            })
                             .scale(Scale.FIT)
                             .build());
             } else if (entry.pub() != null) {
@@ -625,5 +651,10 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
 
     private record AddressBookEntry(String id, String displayName, String photoUri, String description,
                                     String stableKey, VxCard pub) {
+    }
+
+    private static boolean matchesAvatarRequest(ImageView avatarView, String requestKey) {
+        Object tag = avatarView.getTag(R.id.avatar);
+        return requestKey.equals(tag);
     }
 }

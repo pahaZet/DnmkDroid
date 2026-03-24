@@ -102,6 +102,7 @@ import co.tinode.tinodesdk.model.ServerMessage;
 import coil.Coil;
 import coil.ImageLoaders;
 import coil.request.ImageRequest;
+import coil.target.Target;
 
 import io.nayuki.qrcodegen.QrCode;
 
@@ -613,16 +614,40 @@ public class UiUtils {
         final Context context = avatarView.getContext();
         Drawable local = avatarDrawable(context, avatar, fullName, address, disabled);
         if (ref != null) {
+            final String requestKey = "avatar:" + address + ":" + ref;
+            avatarView.setTag(R.id.avatar, requestKey);
             Coil.imageLoader(context)
                     .enqueue(new ImageRequest.Builder(context)
                             .data(ref)
                             .size(Const.MAX_AVATAR_SIZE, Const.MAX_AVATAR_SIZE)
                             .placeholder(local)
                             .error(R.drawable.ic_broken_image_round)
-                            .target(avatarView)
+                            .target(new Target() {
+                                @Override
+                                public void onStart(@Nullable Drawable placeholder) {
+                                    if (matchesAvatarRequest(avatarView, requestKey)) {
+                                        avatarView.setImageDrawable(placeholder != null ? placeholder : local);
+                                    }
+                                }
+
+                                @Override
+                                public void onSuccess(@NonNull Drawable result) {
+                                    if (matchesAvatarRequest(avatarView, requestKey)) {
+                                        avatarView.setImageDrawable(result);
+                                    }
+                                }
+
+                                @Override
+                                public void onError(@Nullable Drawable error) {
+                                    if (matchesAvatarRequest(avatarView, requestKey)) {
+                                        avatarView.setImageDrawable(error != null ? error : local);
+                                    }
+                                }
+                            })
                             .build());
 
         } else {
+            avatarView.setTag(R.id.avatar, "avatar:" + address + ":local");
             avatarView.setImageDrawable(local);
         }
 
@@ -697,6 +722,11 @@ public class UiUtils {
         }
 
         return bitmap;
+    }
+
+    private static boolean matchesAvatarRequest(ImageView avatarView, String requestKey) {
+        Object tag = avatarView.getTag(R.id.avatar);
+        return requestKey.equals(tag);
     }
 
     // Creates LayerDrawable of the right size with gray background and 'fg' in the middle.
