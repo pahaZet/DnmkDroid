@@ -16,7 +16,7 @@ import androidx.lifecycle.ViewModelProvider;
  * Starting a new chat.
  */
 public class StartChatActivity extends BaseActivity
-        implements FindFragment.ReadContactsPermissionChecker,
+        implements ContactsTabFragment.ReadContactsPermissionChecker,
         ImageViewFragment.AvatarCompletionHandler {
 
     static final String FRAGMENT_TABS = "tabs";

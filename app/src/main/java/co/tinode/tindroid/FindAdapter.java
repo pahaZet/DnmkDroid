@@ -37,27 +37,35 @@ import coil.request.ImageRequest;
 import coil.size.Scale;
 import coil.target.Target;
 
-/**
- * FindAdapter merges results from searching local Contacts with remote 'fnd' topic.
- */
 public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         implements ContactsLoaderCallback.CursorSwapper {
 
+    enum DisplayMode {
+        CONTACTS_ONLY,
+        DIRECTORY_ONLY
+    }
+
+    static record FoundMember(String id, VxCard pub, String[] priv) {
+    }
+
+    private final DisplayMode mDisplayMode;
     private final TextAppearanceSpan mHighlightTextSpan;
     private final ClickListener mClickListener;
+
     private List<FoundMember> mFound;
     private List<AddressBookEntry> mAddressBook;
     private Cursor mCursor;
     private String mSearchTerm;
-    // TRUE is user granted access to contacts, FALSE otherwise.
     private boolean mPermissionGranted = false;
 
-    FindAdapter(Context context, @NonNull ClickListener clickListener) {
+    FindAdapter(Context context, @NonNull ClickListener clickListener, @NonNull DisplayMode displayMode) {
         super();
 
         mCursor = null;
-
+        mFound = new LinkedList<>();
+        mAddressBook = new LinkedList<>();
         mClickListener = clickListener;
+        mDisplayMode = displayMode;
 
         setHasStableIds(true);
 
@@ -65,19 +73,28 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
     }
 
     void resetFound(Activity activity, String searchTerm) {
-        mFound = new LinkedList<>();
-        Collection<Subscription<Object,String[]>> subs = Cache.getTinode().getFndTopic().getSubscriptions();
+        List<FoundMember> found = new LinkedList<>();
+        Collection<Subscription<Object, String[]>> subs = Cache.getTinode().getFndTopic().getSubscriptions();
         if (subs != null) {
-            for (Subscription<Object,String[]> s: subs) {
-                mFound.add(new FoundMember(s.user == null ? s.topic : s.user, (VxCard) s.pub, s.priv));
+            for (Subscription<Object, String[]> s : subs) {
+                found.add(new FoundMember(s.user == null ? s.topic : s.user, (VxCard) s.pub, s.priv));
             }
         }
 
+        setFoundMembers(activity, searchTerm, found);
+    }
+
+    void setFoundMembers(Activity activity, String searchTerm, @Nullable List<FoundMember> found) {
+        mFound = found != null ? new LinkedList<>(found) : new LinkedList<>();
         mSearchTerm = searchTerm;
         rebuildAddressBook();
         if (activity != null) {
             activity.runOnUiThread(this::notifyDataSetChanged);
         }
+    }
+
+    void clearFound(Activity activity, String searchTerm) {
+        setFoundMembers(activity, searchTerm, null);
     }
 
     void setContactsPermission(boolean granted) {
@@ -89,6 +106,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
             return;
         }
         mSearchTerm = searchTerm;
+        rebuildAddressBook();
         notifyDataSetChanged();
     }
 
@@ -102,11 +120,8 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         }
 
         final Cursor oldCursor = mCursor;
-
         mCursor = newCursor;
         rebuildAddressBook();
-
-        // Notify the observers about the new cursor
         notifyDataSetChanged();
 
         if (oldCursor != null) {
@@ -123,8 +138,6 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
                 viewType == R.layout.no_permission ||
                 viewType == R.layout.no_search_query) {
             return new ViewHolderEmpty(view);
-        } else if (viewType == R.layout.contact_section) {
-            return new ViewHolderSection(view);
         }
 
         return new ViewHolderItem(view, mClickListener);
@@ -143,8 +156,6 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         }
     }
 
-    // Clear the avatar: there is some bug(?) in RecyclerView(?) which causes avatars to be
-    // displayed in the wrong places.
     @Override
     public void onViewRecycled(@NonNull ViewHolder holder) {
         if (holder instanceof ViewHolderItem) {
@@ -158,194 +169,50 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
 
     @Override
     public int getItemViewType(int position) {
-        if (TextUtils.isEmpty(mSearchTerm)) {
-            // Self topic is present.
-            if (position == 0) {
-                return R.layout.contact;
+        return switch (mDisplayMode) {
+            case CONTACTS_ONLY -> {
+                if (getAddressBookItemCount() == 0) {
+                    yield mPermissionGranted ? R.layout.not_found : R.layout.no_permission;
+                }
+                yield R.layout.contact;
             }
-
-            position--;
-        }
-
-        if (position == 0) {
-            // Phone contacts section title.
-            return R.layout.contact_section;
-        }
-
-        // Subtract section title.
-        position--;
-
-        int count = getAddressBookItemCount();
-        if (count == 0) {
-            if (position == 0) {
-                // The 'empty' element in the 'PHONE CONTACTS' section.
-                return mPermissionGranted ? R.layout.not_found : R.layout.no_permission;
+            case DIRECTORY_ONLY -> {
+                if (getFoundItemCount() == 0) {
+                    yield TextUtils.isEmpty(mSearchTerm) ? R.layout.no_search_query : R.layout.not_found;
+                }
+                yield R.layout.contact;
             }
-            // One 'empty' element
-            count = 1;
-        } else if (position < count) {
-            return R.layout.contact;
-        }
-
-        position -= count;
-
-        if (position == 0) {
-            return R.layout.contact_section;
-        }
-
-        position--;
-
-        count = getFoundItemCount();
-        if (count == 0 && position == 0) {
-            return TextUtils.isEmpty(mSearchTerm) ? R.layout.no_search_query : R.layout.not_found;
-        }
-
-        return R.layout.contact;
+        };
     }
 
     @Override
     public long getItemId(int position) {
-        if (TextUtils.isEmpty(mSearchTerm)) {
-            // Self topic is present.
-            if (position == 0) {
-                return "slf".hashCode();
+        return switch (mDisplayMode) {
+            case CONTACTS_ONLY -> {
+                if (getAddressBookItemCount() == 0) {
+                    yield ("empty_contacts" + mPermissionGranted).hashCode();
+                }
+                yield ("contact:" + mAddressBook.get(position).stableKey()).hashCode();
             }
-
-            position--;
-        }
-
-        if (position == 0) {
-            return "section_one".hashCode();
-        }
-
-        // Subtract section title.
-        position--;
-
-        int count = getAddressBookItemCount();
-        if (count == 0) {
-            if (position == 0) {
-                // The 'empty' element in the 'PHONE CONTACTS' section.
-                return ("empty_one" + mPermissionGranted).hashCode();
+            case DIRECTORY_ONLY -> {
+                if (getFoundItemCount() == 0) {
+                    yield ("empty_directory" + TextUtils.isEmpty(mSearchTerm)).hashCode();
+                }
+                yield ("found:" + mFound.get(position).id()).hashCode();
             }
-
-            count = 1;
-        } else if (position < count) {
-            // Element from address book list.
-            String unique = mAddressBook.get(position).stableKey();
-            return ("contact:" + unique).hashCode();
-        }
-
-        // Skip all address book elements
-        position -= count;
-
-        if (position == 0) {
-            // Section title DIRECTORY;
-            return "section_two".hashCode();
-        }
-
-        // Subtract section title.
-        position--;
-
-        count = getFoundItemCount();
-        if (count == 0 && position == 0) {
-            // The 'empty' element in the DIRECTORY section.
-            return ("empty_two" + TextUtils.isEmpty(mSearchTerm)).hashCode();
-        }
-
-        return ("found:" + mFound.get(position).id).hashCode();
-    }
-
-    private int getCursorItemCount() {
-        return mCursor == null || mCursor.isClosed() ? 0 : mCursor.getCount();
-    }
-
-    private int getFoundItemCount() {
-        return mFound != null ? mFound.size() : 0;
-    }
-
-    private int getAddressBookItemCount() {
-        return mAddressBook != null ? mAddressBook.size() : 0;
-    }
-
-    private Object getItemAt(int position) {
-        if (TextUtils.isEmpty(mSearchTerm)) {
-            // Self topic is present.
-            if (position == 0) {
-                return new FoundMember("slf", null, null);
-            }
-
-            position--;
-        }
-
-        if (position == 0) {
-            // Section title 'PHONE CONTACTS';
-            return R.string.contacts_section_contacts;
-        }
-
-        // Subtract section title.
-        position--;
-
-        // Count the section title element.
-        int count = getAddressBookItemCount();
-        if (count == 0) {
-            if (position == 0) {
-                // The 'empty' element in the 'PHONE CONTACTS' section.
-                return null;
-            }
-            count = 1;
-        } else if (position < count) {
-            return mAddressBook.get(position);
-        }
-
-        position -= count;
-
-        if (position == 0) {
-            // Section title DIRECTORY;
-            return R.string.contacts_section_directory;
-        }
-
-        // Skip the 'DIRECTORY' element;
-        position--;
-
-        count = getFoundItemCount();
-        if (count == 0 && position == 0) {
-            // The 'empty' element in the DIRECTORY section.
-            return null;
-        }
-
-        return mFound.get(position);
+        };
     }
 
     @Override
     public int getItemCount() {
-        // At least 2 section titles.
-        int itemCount = 2;
-
-        if (TextUtils.isEmpty(mSearchTerm)) {
-            // Self topic is present.
-            itemCount++;
-        }
-
-        int count = getFoundItemCount();
-        itemCount += count == 0 ? 1 : count;
-        count = getAddressBookItemCount();
-        itemCount += count == 0 ? 1 : count;
-
-        return itemCount;
+        return switch (mDisplayMode) {
+            case CONTACTS_ONLY -> Math.max(getAddressBookItemCount(), 1);
+            case DIRECTORY_ONLY -> Math.max(getFoundItemCount(), 1);
+        };
     }
 
     interface ClickListener {
         void onClick(String topicName);
-    }
-
-    static class ViewHolderSection extends ViewHolder {
-        ViewHolderSection(@NonNull View item) {
-            super(item);
-        }
-
-        public void bind(int position, Object data) {
-            ((TextView) itemView).setText((int) data);
-        }
     }
 
     static class ViewHolderEmpty extends ViewHolder {
@@ -353,12 +220,12 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
             super(item);
         }
 
+        @Override
         public void bind(int position, Object data) {
         }
     }
 
     public static abstract class ViewHolder extends RecyclerView.ViewHolder {
-
         ViewHolder(@NonNull View itemView) {
             super(itemView);
         }
@@ -370,7 +237,6 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         final TextView name;
         final TextView contactPriv;
         final ImageView avatar;
-
         final ClickListener clickListener;
 
         ViewHolderItem(@NonNull View item, ClickListener cl) {
@@ -404,75 +270,49 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
             final Drawable fallbackAvatar = UiUtils.avatarDrawable(context, null, displayName, unique, false);
             final String avatarRequestKey = "addressbook:" + entry.stableKey();
 
+            name.setTypeface(null, Typeface.NORMAL);
             avatar.setTag(R.id.avatar, avatarRequestKey);
             avatar.setImageDrawable(fallbackAvatar);
+            name.setText(highlight(displayName));
 
-            final int startIndex = UtilsString.indexOfSearchQuery(displayName, mSearchTerm);
-
-            if (startIndex == -1) {
-                // If the user didn't do a search, or the search string didn't match a display
-                // name, show the display name without highlighting
-                name.setText(displayName);
-
-                if (TextUtils.isEmpty(description)) {
-                    contactPriv.setVisibility(View.GONE);
-                } else {
-                    contactPriv.setText(description);
-                    contactPriv.setVisibility(View.VISIBLE);
-                }
+            if (TextUtils.isEmpty(description)) {
+                contactPriv.setText("");
+                contactPriv.setVisibility(View.GONE);
             } else {
-                // If the search string matched the display name, applies a SpannableString to
-                // highlight the search string with the displayed display name
-
-                // Wraps the display name in the SpannableString
-                final SpannableString highlightedName = new SpannableString(displayName);
-
-                // Sets the span to start at the starting point of the match and end at "length"
-                // characters beyond the starting point.
-                highlightedName.setSpan(mHighlightTextSpan, startIndex,
-                        startIndex + mSearchTerm.length(), 0);
-
-                // Binds the SpannableString to the display name View object
-                name.setText(highlightedName);
-
-                if (TextUtils.isEmpty(description)) {
-                    contactPriv.setVisibility(View.GONE);
-                } else {
-                    contactPriv.setText(description);
-                    contactPriv.setVisibility(View.VISIBLE);
-                }
+                contactPriv.setText(highlight(description));
+                contactPriv.setVisibility(View.VISIBLE);
             }
 
             if (!TextUtils.isEmpty(photoUri)) {
                 Coil.imageLoader(context).enqueue(
                         new ImageRequest.Builder(context)
-                            .data(photoUri)
-                            .placeholder(fallbackAvatar)
-                            .error(fallbackAvatar)
-                            .target(new Target() {
-                                @Override
-                                public void onStart(@Nullable Drawable placeholder) {
-                                    if (matchesAvatarRequest(avatar, avatarRequestKey)) {
-                                        avatar.setImageDrawable(placeholder != null ? placeholder : fallbackAvatar);
+                                .data(photoUri)
+                                .placeholder(fallbackAvatar)
+                                .error(fallbackAvatar)
+                                .target(new Target() {
+                                    @Override
+                                    public void onStart(@Nullable Drawable placeholder) {
+                                        if (matchesAvatarRequest(avatar, avatarRequestKey)) {
+                                            avatar.setImageDrawable(placeholder != null ? placeholder : fallbackAvatar);
+                                        }
                                     }
-                                }
 
-                                @Override
-                                public void onSuccess(@NonNull Drawable result) {
-                                    if (matchesAvatarRequest(avatar, avatarRequestKey)) {
-                                        avatar.setImageDrawable(result);
+                                    @Override
+                                    public void onSuccess(@NonNull Drawable result) {
+                                        if (matchesAvatarRequest(avatar, avatarRequestKey)) {
+                                            avatar.setImageDrawable(result);
+                                        }
                                     }
-                                }
 
-                                @Override
-                                public void onError(@Nullable Drawable error) {
-                                    if (matchesAvatarRequest(avatar, avatarRequestKey)) {
-                                        avatar.setImageDrawable(error != null ? error : fallbackAvatar);
+                                    @Override
+                                    public void onError(@Nullable Drawable error) {
+                                        if (matchesAvatarRequest(avatar, avatarRequestKey)) {
+                                            avatar.setImageDrawable(error != null ? error : fallbackAvatar);
+                                        }
                                     }
-                                }
-                            })
-                            .scale(Scale.FIT)
-                            .build());
+                                })
+                                .scale(Scale.FIT)
+                                .build());
             } else if (entry.pub() != null) {
                 UiUtils.setAvatar(avatar, entry.pub(), unique, false);
             } else {
@@ -483,12 +323,12 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         }
 
         private void bind(final FoundMember member) {
-            final String userId = member.id;
+            final String userId = member.id();
 
             avatar.setImageDrawable(null);
-            UiUtils.setAvatar(avatar, member.pub, userId, false);
-            if (member.pub != null) {
-                name.setText(member.pub.fn);
+            UiUtils.setAvatar(avatar, member.pub(), userId, false);
+            if (member.pub() != null && !TextUtils.isEmpty(member.pub().fn)) {
+                name.setText(highlight(member.pub().fn));
                 name.setTypeface(null, Typeface.NORMAL);
             } else if (Topic.isSlfType(userId)) {
                 name.setText(R.string.self_topic_title);
@@ -498,23 +338,52 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
                 name.setTypeface(null, Typeface.ITALIC);
             }
 
-            if (member.priv != null) {
-                String matched = TextUtils.join(", ", member.priv);
-                final SpannableString highlightedName = new SpannableString(matched);
-                final int startIndex = UtilsString.indexOfSearchQuery(matched, mSearchTerm);
-                if (startIndex >= 0) {
-                    highlightedName.setSpan(mHighlightTextSpan, startIndex,
-                            startIndex + mSearchTerm.length(), 0);
-                }
-                contactPriv.setText(highlightedName);
+            if (member.priv() != null && member.priv().length > 0) {
+                contactPriv.setText(highlight(TextUtils.join(", ", member.priv())));
+                contactPriv.setVisibility(View.VISIBLE);
             } else if (Topic.isSlfType(userId)) {
                 contactPriv.setText(R.string.self_topic_description);
+                contactPriv.setVisibility(View.VISIBLE);
             } else {
                 contactPriv.setText("");
+                contactPriv.setVisibility(View.GONE);
             }
 
             itemView.setOnClickListener(view -> clickListener.onClick(userId));
         }
+    }
+
+    private int getCursorItemCount() {
+        return mCursor == null || mCursor.isClosed() ? 0 : mCursor.getCount();
+    }
+
+    private int getFoundItemCount() {
+        return mFound != null ? mFound.size() : 0;
+    }
+
+    private int getAddressBookItemCount() {
+        return mAddressBook != null ? mAddressBook.size() : 0;
+    }
+
+    private Object getItemAt(int position) {
+        return switch (mDisplayMode) {
+            case CONTACTS_ONLY -> getAddressBookItemCount() == 0 ? null : mAddressBook.get(position);
+            case DIRECTORY_ONLY -> getFoundItemCount() == 0 ? null : mFound.get(position);
+        };
+    }
+
+    private CharSequence highlight(@Nullable String value) {
+        if (TextUtils.isEmpty(value)) {
+            return "";
+        }
+        int startIndex = UtilsString.indexOfSearchQuery(value, mSearchTerm);
+        if (startIndex < 0 || TextUtils.isEmpty(mSearchTerm)) {
+            return value;
+        }
+
+        SpannableString highlighted = new SpannableString(value);
+        highlighted.setSpan(mHighlightTextSpan, startIndex, startIndex + mSearchTerm.length(), 0);
+        return highlighted;
     }
 
     private void rebuildAddressBook() {
@@ -525,7 +394,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
 
         Map<String, FoundMember> byPhone = new HashMap<>();
         for (FoundMember member : mFound) {
-            if (member == null || TextUtils.isEmpty(member.id)) {
+            if (member == null || TextUtils.isEmpty(member.id())) {
                 continue;
             }
             indexMemberPhones(byPhone, member);
@@ -539,31 +408,50 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
                 continue;
             }
 
+            String displayName = mCursor.getString(ContactsLoaderCallback.ContactsQuery.DISPLAY_NAME);
+            String description = addressBookDescription(matched, displayName);
+            if (!matchesAddressBookSearch(displayName, number, description, matched.id())) {
+                continue;
+            }
+
             String contactId = mCursor.getString(ContactsLoaderCallback.ContactsQuery.CONTACT_ID);
-            String dedupeKey = contactId + ":" + matched.id;
+            String dedupeKey = contactId + ":" + matched.id();
             if (!seen.add(dedupeKey)) {
                 continue;
             }
 
-            String displayName = mCursor.getString(ContactsLoaderCallback.ContactsQuery.DISPLAY_NAME);
             String photoUri = mCursor.getString(ContactsLoaderCallback.ContactsQuery.PHOTO_THUMBNAIL_DATA);
             mAddressBook.add(new AddressBookEntry(
-                    matched.id,
+                    matched.id(),
                     displayName,
                     photoUri,
-                    addressBookDescription(matched, displayName),
+                    description,
                     dedupeKey,
-                    matched.pub));
+                    matched.pub()));
         }
     }
 
-    private static String addressBookDescription(FoundMember member, String displayName) {
-        if (member.pub != null && !TextUtils.isEmpty(member.pub.fn) && !member.pub.fn.equals(displayName)) {
-            return member.pub.fn;
+    private boolean matchesAddressBookSearch(String displayName, String phone, String description, String id) {
+        if (TextUtils.isEmpty(mSearchTerm)) {
+            return true;
         }
-        if (member.priv != null && member.priv.length > 0) {
+        return matchesSearch(displayName) ||
+                matchesSearch(phone) ||
+                matchesSearch(description) ||
+                matchesSearch(id);
+    }
+
+    private boolean matchesSearch(String value) {
+        return !TextUtils.isEmpty(value) && UtilsString.indexOfSearchQuery(value, mSearchTerm) >= 0;
+    }
+
+    private static String addressBookDescription(FoundMember member, String displayName) {
+        if (member.pub() != null && !TextUtils.isEmpty(member.pub().fn) && !member.pub().fn.equals(displayName)) {
+            return member.pub().fn;
+        }
+        if (member.priv() != null && member.priv().length > 0) {
             List<String> tags = new LinkedList<>();
-            for (String val : member.priv) {
+            for (String val : member.priv()) {
                 if (!TextUtils.isEmpty(val) && !val.startsWith("tel:")) {
                     tags.add(val);
                 }
@@ -572,7 +460,7 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
                 return TextUtils.join(", ", tags);
             }
         }
-        return member.id;
+        return member.id();
     }
 
     private static FoundMember resolveByPhone(Map<String, FoundMember> byPhone, String phone) {
@@ -586,15 +474,15 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
     }
 
     private static void indexMemberPhones(Map<String, FoundMember> byPhone, FoundMember member) {
-        if (member.pub != null && member.pub.tel != null) {
-            for (VxCard.Contact phone : member.pub.tel) {
+        if (member.pub() != null && member.pub().tel != null) {
+            for (VxCard.Contact phone : member.pub().tel) {
                 for (String variant : normalizedPhoneVariants(stripPhoneScheme(phone.uri))) {
                     byPhone.putIfAbsent(variant, member);
                 }
             }
         }
-        if (member.priv != null) {
-            for (String match : member.priv) {
+        if (member.priv() != null) {
+            for (String match : member.priv()) {
                 if (match != null && match.startsWith("tel:")) {
                     for (String variant : normalizedPhoneVariants(stripPhoneScheme(match))) {
                         byPhone.putIfAbsent(variant, member);
@@ -644,9 +532,6 @@ public class FindAdapter extends RecyclerView.Adapter<FindAdapter.ViewHolder>
         }
 
         return variants;
-    }
-
-    private record FoundMember(String id, VxCard pub, String[] priv) {
     }
 
     private record AddressBookEntry(String id, String displayName, String photoUri, String description,

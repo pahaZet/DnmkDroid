@@ -1,6 +1,5 @@
 package co.tinode.tindroid;
 
-import android.Manifest;
 import android.app.Activity;
 import android.app.SearchManager;
 import android.content.ActivityNotFoundException;
@@ -20,11 +19,8 @@ import android.view.ViewGroup;
 import android.widget.SearchView;
 import android.widget.Toast;
 
-import java.util.Map;
 import java.util.regex.Pattern;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.ShareActionProvider;
@@ -33,7 +29,6 @@ import androidx.core.view.MenuProvider;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.Lifecycle;
-import androidx.loader.app.LoaderManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import co.tinode.tindroid.media.VxCard;
@@ -48,48 +43,20 @@ import co.tinode.tinodesdk.model.MsgSetMeta;
 import co.tinode.tinodesdk.model.ServerMessage;
 import co.tinode.tinodesdk.model.Subscription;
 
-/**
- * FindFragment contains a RecyclerView with results from searching local Contacts and remote 'fnd' topic.
- */
 public class FindFragment extends Fragment implements UiUtils.ProgressIndicator, MenuProvider {
 
     private static final String TAG = "FindFragment";
-
-    // Delay in milliseconds between the last keystroke and time when the query is sent to the server.
     private static final int SEARCH_REQUEST_DELAY = 1000;
-
-    private static final int LOADER_ID = 104;
-
-    // Minimum allowed length of a search tag (server-enforced).
     private static final int MIN_TAG_LENGTH = 4;
+    private static final Pattern SINGLE_TAG_TEST = Pattern.compile("[\\s,:]");
 
     private FndTopic<VxCard> mFndTopic;
     private FndListener mFndListener;
-
     private LoginEventListener mLoginListener;
 
-    private String mSearchTerm; // Stores the current search query term
-    private FindAdapter mAdapter = null;
-
-    // Callback which receives notifications of contacts loading status;
-    private ContactsLoaderCallback mContactsLoaderCallback;
-
-    private CircleProgressView mProgress = null;
-
-    private final ActivityResultLauncher<String[]> mRequestPermissionLauncher =
-            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
-                for (Map.Entry<String,Boolean> e : result.entrySet()) {
-                    // Check if all required permissions are granted.
-                    if (!e.getValue()) {
-                        return;
-                    }
-                }
-                // Permissions are granted.
-                FragmentActivity activity = getActivity();
-                UiUtils.onContactsPermissionsGranted(activity);
-                // Try to open the image selector again.
-                restartLoader(getActivity(), mSearchTerm);
-            });
+    private String mSearchTerm;
+    private FindAdapter mAdapter;
+    private CircleProgressView mProgress;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -110,7 +77,7 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
     }
 
     @Override
-    public void onViewCreated(@NonNull final View fragment, Bundle savedInstanceState) {
+    public void onViewCreated(@NonNull View fragment, Bundle savedInstanceState) {
         final FragmentActivity activity = requireActivity();
         if (activity.isFinishing() || activity.isDestroyed()) {
             return;
@@ -122,13 +89,9 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
         rv.setLayoutManager(new LinearLayoutManager(activity));
         rv.setHasFixedSize(true);
         rv.addItemDecoration(new HorizontalListDivider(activity));
-        mAdapter = new FindAdapter(activity, new ContactClickListener());
 
-        mContactsLoaderCallback = new ContactsLoaderCallback(LOADER_ID, activity, mAdapter,
-                ContactsLoaderCallback.LoaderMode.PHONE_BOOK);
-
-        mAdapter.swapCursor(null, mSearchTerm);
-        mAdapter.setContactsPermission(UiUtils.isPermissionGranted(activity, Manifest.permission.READ_CONTACTS));
+        mAdapter = new FindAdapter(activity, new ContactClickListener(), FindAdapter.DisplayMode.DIRECTORY_ONLY);
+        mAdapter.clearFound(activity, mSearchTerm);
         rv.setAdapter(mAdapter);
 
         mProgress = fragment.findViewById(R.id.progressCircle);
@@ -138,53 +101,15 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
     public void onResume() {
         super.onResume();
 
-        final View fragment = getView();
-        if (fragment == null) {
-            return;
-        }
-
         final Tinode tinode = Cache.getTinode();
         mLoginListener = new LoginEventListener(tinode.isConnected());
         tinode.addListener(mLoginListener);
 
         if (!tinode.isAuthenticated()) {
-            // If connection is not ready, wait for completion. This method will be called again
-            // from the onLogin callback;
             return;
         }
 
         topicAttach();
-    }
-
-    private void topicAttach() {
-        Cache.attachFndTopic(mFndListener)
-                .thenApply(new PromisedReply.SuccessListener<>() {
-                    @Override
-                    public PromisedReply<ServerMessage> onSuccess(ServerMessage result) {
-                        final FragmentActivity activity = getActivity();
-                        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
-                            return null;
-                        }
-
-                        mAdapter.resetFound(activity, mSearchTerm);
-                        // Refresh cursor.
-                        activity.runOnUiThread(() -> restartLoader(activity, mSearchTerm));
-                        return null;
-                    }
-                })
-                .thenCatch(new UiUtils.ToastFailureListener(getActivity()))
-                .thenApply(new PromisedReply.SuccessListener<>() {
-                    @Override
-                    public PromisedReply<ServerMessage> onSuccess(ServerMessage result) {
-                        final FragmentActivity activity = getActivity();
-                        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
-                            return null;
-                        }
-                        // Load local contacts even if there is no connection.
-                        activity.runOnUiThread(() -> restartLoader(activity, mSearchTerm));
-                        return null;
-                    }
-                });
     }
 
     @Override
@@ -195,7 +120,10 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
             mFndTopic.remListener(mFndListener);
         }
 
-        Cache.getTinode().removeListener(mLoginListener);
+        if (mLoginListener != null) {
+            Cache.getTinode().removeListener(mLoginListener);
+            mLoginListener = null;
+        }
     }
 
     @Override
@@ -203,7 +131,6 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
         super.onSaveInstanceState(outState);
 
         if (!TextUtils.isEmpty(mSearchTerm)) {
-            // Saves the current search string
             outState.putString(SearchManager.QUERY, mSearchTerm);
         }
     }
@@ -225,23 +152,16 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
             return;
         }
 
-        // Setting up SearchView
-
-        // Locate the search item
         MenuItem searchItem = menu.findItem(R.id.action_search);
-
-        // Retrieves the SearchView from the search menu item
         final SearchView searchView = (SearchView) searchItem.getActionView();
         if (searchView == null) {
             return;
         }
         searchView.setQueryHint(getResources().getString(R.string.hint_search_tags));
-        // Assign searchable info to SearchView
         searchView.setSearchableInfo(searchManager.getSearchableInfo(activity.getComponentName()));
         searchView.setFocusable(true);
         searchView.setFocusableInTouchMode(true);
 
-        // Set listeners for SearchView
         searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             private Handler mHandler;
 
@@ -252,7 +172,6 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
                 }
 
                 mSearchTerm = doSearch(queryText);
-
                 return true;
             }
 
@@ -265,7 +184,6 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
                     mHandler.removeCallbacksAndMessages(null);
                 }
 
-                // Delay search in case of more input
                 mHandler.postDelayed(() -> mSearchTerm = doSearch(queryText), SEARCH_REQUEST_DELAY);
                 return true;
             }
@@ -283,25 +201,15 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
             @Override
             public boolean onMenuItemActionCollapse(@NonNull MenuItem menuItem) {
                 searchView.clearFocus();
-                mSearchTerm = null;
+                mSearchTerm = doSearch("");
                 return true;
             }
         });
 
 
         if (mSearchTerm != null) {
-            // If search term is already set here then this fragment is
-            // being restored from a saved state and the search menu item
-            // needs to be expanded and populated again.
-
-            // Stores the search term (as it will be wiped out by
-            // onQueryTextChange() when the menu item is expanded).
             final String savedSearchTerm = mSearchTerm;
-
-            // Expands the search menu item
             searchItem.expandActionView();
-
-            // Sets the SearchView to the previous search string
             searchView.setQuery(savedSearchTerm, false);
         }
     }
@@ -343,68 +251,90 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
         return false;
     }
 
+    private void topicAttach() {
+        Cache.attachFndTopic(mFndListener)
+                .thenApply(new PromisedReply.SuccessListener<>() {
+                    @Override
+                    public PromisedReply<ServerMessage> onSuccess(ServerMessage result) {
+                        final FragmentActivity activity = getActivity();
+                        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+                            return null;
+                        }
+
+                        if (TextUtils.isEmpty(mSearchTerm)) {
+                            mAdapter.clearFound(activity, null);
+                        } else {
+                            mSearchTerm = doSearch(mSearchTerm);
+                        }
+                        return null;
+                    }
+                })
+                .thenCatch(new UiUtils.ToastFailureListener(getActivity()));
+    }
+
     private void onFindQueryResult() {
         mAdapter.resetFound(getActivity(), mSearchTerm);
     }
 
-    private static final Pattern sSingleTagTest = Pattern.compile("[\\s,:]");
     private String doSearch(String query) {
-        query = query.trim();
-        query = !TextUtils.isEmpty(query) ? query : null;
+        query = normalizeSearchTerm(query);
 
-        // No change.
-        if (mSearchTerm == null && query == null) {
-            return null;
-        }
-
-        // Don't do anything if the new filter is the same as the current filter
-        if (mSearchTerm != null && mSearchTerm.equals(query)) {
-            return mSearchTerm;
-        }
-
-        restartLoader(getActivity(), query);
-
-        // Query is too short to be sent to the server.
-        if (query != null && query.length() < MIN_TAG_LENGTH) {
+        if (mFndTopic == null || !mFndTopic.isAttached()) {
+            if (mAdapter != null) {
+                mAdapter.clearFound(getActivity(), query);
+            }
+            toggleProgressIndicator(false);
             return query;
         }
 
-        if (TextUtils.isEmpty(query)) {
-            query = Tinode.NULL_VALUE;
-        } else if (!sSingleTagTest.matcher(query).matches()) {
-            // No colons, spaces or commas. Try as email, phone, or alias.
-            String email = UtilsString.asEmail(query);
+        if (TextUtils.isEmpty(query) || query.length() < MIN_TAG_LENGTH) {
+            mFndTopic.setMeta(new MsgSetMeta.Builder<String, String>()
+                    .with(new MetaSetDesc<>(Tinode.NULL_VALUE, null)).build());
+            if (mAdapter != null) {
+                mAdapter.clearFound(getActivity(), query);
+            }
+            toggleProgressIndicator(false);
+            return query;
+        }
+
+        String serverQuery = query;
+        if (!SINGLE_TAG_TEST.matcher(serverQuery).find()) {
+            String email = UtilsString.asEmail(serverQuery);
             if (email != null) {
-                query = String.format("%s%s", Tinode.TAG_EMAIL, email);
+                serverQuery = Tinode.TAG_EMAIL + email;
             } else {
-                String tel = UtilsString.asPhone(query);
+                String tel = UtilsString.asPhone(serverQuery);
                 if (tel != null) {
-                    query = String.format("%s%s", Tinode.TAG_PHONE, tel);
+                    serverQuery = Tinode.TAG_PHONE + tel;
                 } else {
-                    if (query.charAt(0) == '@') {
-                        query = query.substring(1);
+                    if (serverQuery.charAt(0) == '@') {
+                        serverQuery = serverQuery.substring(1);
                     }
-                    // Convert to "alice" -> "alias:alice,alice"
-                    query = String.format("%s%s,%s", Tinode.TAG_ALIAS, query, query);
+                    serverQuery = Tinode.TAG_ALIAS + serverQuery + "," + serverQuery;
                 }
             }
         }
 
-        mFndTopic.setMeta(new MsgSetMeta.Builder<String,String>().with(new MetaSetDesc<>(query, null)).build());
-        if (!Tinode.NULL_VALUE.equals(query)) {
-            toggleProgressIndicator(true);
-            mFndTopic.getMeta(MsgGetMeta.sub()).thenFinally(new PromisedReply.FinalListener() {
-                @Override
-                public void onFinally() {
-                    toggleProgressIndicator(false);
-                }
-            });
-        } else {
-            // If query is empty, clear the results and refresh.
-            onFindQueryResult();
-        }
+        mFndTopic.setMeta(new MsgSetMeta.Builder<String, String>()
+                .with(new MetaSetDesc<>(serverQuery, null)).build());
+        toggleProgressIndicator(true);
+        mFndTopic.getMeta(MsgGetMeta.sub()).thenFinally(new PromisedReply.FinalListener() {
+            @Override
+            public void onFinally() {
+                toggleProgressIndicator(false);
+            }
+        });
 
         return query;
+    }
+
+    private static String normalizeSearchTerm(@Nullable String query) {
+        if (query == null) {
+            return null;
+        }
+
+        query = query.trim();
+        return !TextUtils.isEmpty(query) ? query : null;
     }
 
     @Override
@@ -427,39 +357,6 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
         });
     }
 
-    // Restarts the loader. This triggers onCreateLoader(), which builds the
-    // necessary content Uri from mSearchTerm.
-    private void restartLoader(final FragmentActivity activity, final String searchTerm) {
-        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
-            return;
-        }
-
-        if (UiUtils.isPermissionGranted(activity, Manifest.permission.READ_CONTACTS)) {
-            mAdapter.setContactsPermission(true);
-            LoaderManager lm = LoaderManager.getInstance(activity);
-            mAdapter.setSearchTerm(searchTerm);
-            mContactsLoaderCallback.setSearchTerm(searchTerm);
-            if (lm.getLoader(LOADER_ID) == null) {
-                Bundle args = new Bundle();
-                args.putString(ContactsLoaderCallback.ARG_SEARCH_TERM, searchTerm);
-                lm.initLoader(LOADER_ID, args, mContactsLoaderCallback);
-            } else {
-                lm.initLoader(LOADER_ID, null, mContactsLoaderCallback);
-            }
-        } else if (((ReadContactsPermissionChecker) activity).shouldRequestReadContactsPermission()) {
-            mAdapter.setContactsPermission(false);
-            ((ReadContactsPermissionChecker) activity).setReadContactsPermissionRequested();
-            mRequestPermissionLauncher.launch(new String[]{Manifest.permission.READ_CONTACTS,
-                    Manifest.permission.WRITE_CONTACTS});
-        }
-    }
-
-    interface ReadContactsPermissionChecker {
-        boolean shouldRequestReadContactsPermission();
-
-        void setReadContactsPermissionRequested();
-    }
-
     private class FndListener extends FndTopic.FndListener<VxCard> {
         @Override
         public void onMetaSub(final Subscription<VxCard, String[]> sub) {
@@ -470,7 +367,9 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
 
         @Override
         public void onSubsUpdated() {
-            onFindQueryResult();
+            if (!TextUtils.isEmpty(mSearchTerm) && mSearchTerm.length() >= MIN_TAG_LENGTH) {
+                onFindQueryResult();
+            }
         }
     }
 
@@ -489,7 +388,6 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
                 launcher.setDataAndType(uri, initial.getType());
                 launcher.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             }
-            // See discussion here: https://github.com/tinode/tindroid/issues/39
             launcher.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             launcher.putExtra(Const.INTENT_EXTRA_TOPIC, topicName);
             startActivity(launcher);
