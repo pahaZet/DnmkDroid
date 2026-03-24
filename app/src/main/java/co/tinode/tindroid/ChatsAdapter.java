@@ -170,6 +170,7 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
                     hayStack.add(pub.fn);
                     hayStack.add(pub.note);
                 }
+                hayStack.add(getAddressBookName(topic));
                 hayStack.add(topic.getComment());
                 return hayStack.stream()
                         .filter(token -> token != null && token.toLowerCase(Locale.getDefault()).contains(mQuery))
@@ -177,6 +178,15 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
                         .orElse(null) != null;
             }
         };
+    }
+
+    private static String getAddressBookName(ComTopic<VxCard> topic) {
+        if (topic == null || topic.getPriv() == null) {
+            return null;
+        }
+
+        Object value = topic.getPriv().get(ChatsActivity.PRIV_ADDRESS_BOOK_NAME);
+        return value instanceof CharSequence ? value.toString() : null;
     }
 
     interface ClickListener {
@@ -306,7 +316,11 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
             details.id = topicName;
 
             VxCard pub = topic.getPub();
-            if (pub != null && pub.fn != null) {
+            String addressBookName = getAddressBookName(topic);
+            if (!TextUtils.isEmpty(addressBookName)) {
+                name.setText(addressBookName);
+                name.setTypeface(null, Typeface.NORMAL);
+            } else if (pub != null && pub.fn != null) {
                 name.setText(pub.fn);
                 name.setTypeface(null, Typeface.NORMAL);
             } else if (topic.isSlfType()) {
@@ -329,7 +343,12 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
                         .format(new PreviewFormatter(priv.getContext(), priv.getTextSize())));
             } else {
                 messageStatus.setVisibility(View.GONE);
-                priv.setText(topic.getComment());
+                String subtitle = topic.getComment();
+                if (TextUtils.isEmpty(subtitle) && !TextUtils.isEmpty(addressBookName) &&
+                        pub != null && !TextUtils.isEmpty(pub.fn) && !TextUtils.equals(addressBookName, pub.fn)) {
+                    subtitle = pub.fn;
+                }
+                priv.setText(subtitle);
             }
 
             int unread = topic.getUnreadCount();

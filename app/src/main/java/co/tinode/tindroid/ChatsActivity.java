@@ -3,13 +3,31 @@ package co.tinode.tindroid;
 import android.Manifest;
 import android.accounts.Account;
 import android.accounts.AccountManager;
+import android.database.ContentObserver;
+import android.database.Cursor;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.ContactsContract;
+import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Menu;
 
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
@@ -18,13 +36,17 @@ import androidx.fragment.app.FragmentTransaction;
 import co.tinode.tindroid.account.ContactsManager;
 import co.tinode.tindroid.account.Utils;
 import co.tinode.tindroid.media.VxCard;
+import co.tinode.tinodesdk.FndTopic;
 import co.tinode.tinodesdk.MeTopic;
 import co.tinode.tinodesdk.Tinode;
 import co.tinode.tinodesdk.Topic;
 import co.tinode.tinodesdk.model.Credential;
 import co.tinode.tinodesdk.model.Description;
+import co.tinode.tinodesdk.model.MetaSetDesc;
+import co.tinode.tinodesdk.model.MsgGetMeta;
 import co.tinode.tinodesdk.model.MsgServerInfo;
 import co.tinode.tinodesdk.model.MsgServerPres;
+import co.tinode.tinodesdk.model.MsgSetMeta;
 import co.tinode.tinodesdk.model.PrivateType;
 import co.tinode.tinodesdk.model.Subscription;
 
@@ -34,6 +56,7 @@ import co.tinode.tinodesdk.model.Subscription;
 public class ChatsActivity extends BaseActivity
         implements UiUtils.ProgressIndicator, UtilsMedia.MediaPreviewer,
         ImageViewFragment.AvatarCompletionHandler {
+    private static final String TAG = "ChatsActivity";
     static final String TAG_FRAGMENT_NAME = "fragment";
     static final String FRAGMENT_CHATLIST = "contacts";
     static final String FRAGMENT_ACCOUNT_INFO = "account_info";
@@ -48,12 +71,27 @@ public class ChatsActivity extends BaseActivity
     static final String FRAGMENT_ARCHIVE = "archive";
     static final String FRAGMENT_BANNED = "banned";
     static final String FRAGMENT_WALLPAPERS = "wallpapers";
+    static final String PRIV_ADDRESS_BOOK_NAME = "addressBookName";
+
+    private static final String ACCKEY_CONTACTS_SYNC_MARKER = "co.tinode.tindroid.sync_marker_contacts";
+    private static final String ACCKEY_AUTOCHAT_SYNC_MARKER = "co.tinode.tindroid.sync_marker_autochats";
+    private static final String ACCKEY_AUTOCHAT_MATCHED_USERS = "co.tinode.tindroid.sync_users_autochats";
+    private static final long AUTOCHAT_SYNC_DELAY_MS = 750L;
 
     private ContactsEventListener mTinodeListener = null;
     private MeListener mMeTopicListener = null;
     private MeTopic<VxCard> mMeTopic = null;
 
     private Account mAccount;
+    private ContentObserver mContactsObserver = null;
+    private final Handler mMainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService mAutoChatExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean mAutoChatRunning = new AtomicBoolean(false);
+    private final AtomicBoolean mAutoChatPending = new AtomicBoolean(false);
+    private final Runnable mAutoChatRunnable = () -> {
+        mAutoChatPending.set(false);
+        runAutoChatSync();
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -104,6 +142,8 @@ public class ChatsActivity extends BaseActivity
 
         UiUtils.setupToolbar(this, null, null, false,
                 null, false, 0);
+        registerContactsObserver();
+        scheduleAutoChatSync(0);
 
         if (!mMeTopic.isAttached()) {
             toggleProgressIndicator(true);
@@ -130,6 +170,9 @@ public class ChatsActivity extends BaseActivity
     @Override
     public void onPause() {
         super.onPause();
+        unregisterContactsObserver();
+        mMainHandler.removeCallbacks(mAutoChatRunnable);
+        mAutoChatPending.set(false);
 
         if (mTinodeListener != null) {
             Cache.getTinode().removeListener(mTinodeListener);
@@ -143,6 +186,12 @@ public class ChatsActivity extends BaseActivity
         if (mMeTopic != null) {
             mMeTopic.remListener(mMeTopicListener);
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mAutoChatExecutor.shutdownNow();
     }
 
     @Override
@@ -256,6 +305,317 @@ public class ChatsActivity extends BaseActivity
         void updateFormValues(final FragmentActivity activity, final MeTopic<VxCard> me);
     }
 
+    private void registerContactsObserver() {
+        if (mContactsObserver != null || !UiUtils.isPermissionGranted(this, Manifest.permission.READ_CONTACTS)) {
+            return;
+        }
+
+        mContactsObserver = new ContentObserver(mMainHandler) {
+            @Override
+            public void onChange(boolean selfChange) {
+                onChange(selfChange, null);
+            }
+
+            @Override
+            public void onChange(boolean selfChange, android.net.Uri uri) {
+                scheduleAutoChatSync(AUTOCHAT_SYNC_DELAY_MS);
+            }
+        };
+        getContentResolver().registerContentObserver(ContactsContract.Contacts.CONTENT_URI, true, mContactsObserver);
+    }
+
+    private void unregisterContactsObserver() {
+        if (mContactsObserver != null) {
+            getContentResolver().unregisterContentObserver(mContactsObserver);
+            mContactsObserver = null;
+        }
+    }
+
+    private void scheduleAutoChatSync(long delayMs) {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+
+        mAutoChatPending.set(true);
+        mMainHandler.removeCallbacks(mAutoChatRunnable);
+        mMainHandler.postDelayed(mAutoChatRunnable, Math.max(0L, delayMs));
+    }
+
+    private void runAutoChatSync() {
+        if (mAutoChatRunning.getAndSet(true)) {
+            mAutoChatPending.set(true);
+            return;
+        }
+
+        mAutoChatExecutor.execute(() -> {
+            try {
+                syncAddressBookChats();
+            } finally {
+                mAutoChatRunning.set(false);
+                if (mAutoChatPending.get()) {
+                    mMainHandler.post(mAutoChatRunnable);
+                }
+            }
+        });
+    }
+
+    private void syncAddressBookChats() {
+        if (!UiUtils.isPermissionGranted(this, Manifest.permission.READ_CONTACTS)) {
+            return;
+        }
+
+        final Tinode tinode = Cache.getTinode();
+        if (!tinode.isAuthenticated()) {
+            return;
+        }
+
+        final Account account = getSavedAccount(tinode);
+        if (account == null) {
+            return;
+        }
+
+        final AccountManager accountManager = AccountManager.get(this);
+        final String syncMarker = accountManager.getUserData(account, ACCKEY_CONTACTS_SYNC_MARKER);
+        if (TextUtils.isEmpty(syncMarker)) {
+            return;
+        }
+
+        final String processedMarker = accountManager.getUserData(account, ACCKEY_AUTOCHAT_SYNC_MARKER);
+        if (TextUtils.equals(syncMarker, processedMarker)) {
+            return;
+        }
+
+        final FndTopic<VxCard> fnd = tinode.getFndTopic();
+        if (fnd == null || !fnd.isAttached()) {
+            return;
+        }
+
+        final LinkedHashMap<String, PendingChatCandidate> candidates =
+                collectPendingChatCandidates(fnd.getSubscriptions());
+        final Set<String> handledUsers = decodeUserIds(accountManager.getUserData(account, ACCKEY_AUTOCHAT_MATCHED_USERS));
+        boolean created = false;
+        boolean complete = true;
+
+        for (PendingChatCandidate candidate : candidates.values()) {
+            if (handledUsers.contains(candidate.userId())) {
+                continue;
+            }
+            if (tinode.getTopic(candidate.userId()) != null) {
+                handledUsers.add(candidate.userId());
+                continue;
+            }
+
+            try {
+                if (createAddressBookChat(tinode, candidate)) {
+                    created = true;
+                }
+                handledUsers.add(candidate.userId());
+            } catch (Exception err) {
+                complete = false;
+                Log.w(TAG, "Failed to auto-create chat for " + candidate.userId(), err);
+            }
+        }
+
+        storeMatchedUsers(accountManager, account, handledUsers);
+        if (complete) {
+            storeMatchedUsers(accountManager, account, candidates.keySet());
+            accountManager.setUserData(account, ACCKEY_AUTOCHAT_SYNC_MARKER, syncMarker);
+        }
+
+        if (created) {
+            runOnUiThread(this::datasetChanged);
+        }
+    }
+
+    private Account getSavedAccount(Tinode tinode) {
+        if (mAccount == null && tinode != null && !TextUtils.isEmpty(tinode.getMyId())) {
+            mAccount = Utils.getSavedAccount(AccountManager.get(this), tinode.getMyId());
+        }
+        return mAccount;
+    }
+
+    private LinkedHashMap<String, PendingChatCandidate> collectPendingChatCandidates(
+            Collection<Subscription<VxCard, String[]>> matches) {
+        LinkedHashMap<String, PendingChatCandidate> result = new LinkedHashMap<>();
+        Map<String, String> byPhone = new HashMap<>();
+
+        if (matches != null) {
+            for (Subscription<VxCard, String[]> sub : matches) {
+                String userId = getFoundSubscriptionId(sub);
+                if (TextUtils.isEmpty(userId)) {
+                    continue;
+                }
+                indexPhones(byPhone, userId, sub.pub, sub.priv);
+            }
+        }
+
+        if (byPhone.isEmpty()) {
+            return result;
+        }
+
+        try (Cursor cursor = getContentResolver().query(
+                ContactsLoaderCallback.ContactsQuery.CONTENT_URI,
+                ContactsLoaderCallback.ContactsQuery.PROJECTION,
+                ContactsLoaderCallback.ContactsQuery.SELECTION_PHONE_BOOK,
+                null,
+                ContactsLoaderCallback.ContactsQuery.SORT_ORDER)) {
+            if (cursor == null) {
+                return result;
+            }
+
+            for (cursor.moveToFirst(); !cursor.isAfterLast(); cursor.moveToNext()) {
+                String phone = cursor.getString(ContactsLoaderCallback.ContactsQuery.PHONE_NUMBER);
+                String userId = resolveByPhone(byPhone, phone);
+                if (TextUtils.isEmpty(userId) || result.containsKey(userId)) {
+                    continue;
+                }
+
+                String displayName = cursor.getString(ContactsLoaderCallback.ContactsQuery.DISPLAY_NAME);
+                if (TextUtils.isEmpty(displayName)) {
+                    displayName = userId;
+                }
+
+                result.put(userId, new PendingChatCandidate(userId, displayName));
+            }
+        } catch (SecurityException ex) {
+            Log.w(TAG, "Unable to read phone contacts for auto-created chats", ex);
+        }
+
+        return result;
+    }
+
+    private boolean createAddressBookChat(Tinode tinode, PendingChatCandidate candidate) throws Exception {
+        if (tinode.getTopic(candidate.userId()) != null) {
+            return false;
+        }
+
+        PrivateType priv = new PrivateType();
+        priv.put(PRIV_ADDRESS_BOOK_NAME, candidate.displayName());
+
+        MsgSetMeta<VxCard, PrivateType> set = new MsgSetMeta.Builder<VxCard, PrivateType>()
+                .with(new MetaSetDesc<>(null, priv))
+                .build();
+
+        MsgGetMeta get = new MsgGetMeta();
+        get.setDesc(null);
+        get.setSub(null, null);
+
+        tinode.subscribe(candidate.userId(), set, null).getResult();
+        tinode.getMeta(candidate.userId(), get).getResult();
+        return tinode.getTopic(candidate.userId()) != null;
+    }
+
+    private static void indexPhones(Map<String, String> byPhone, String userId,
+                                    VxCard pub, String[] priv) {
+        if (pub != null && pub.tel != null) {
+            for (VxCard.Contact phone : pub.tel) {
+                for (String variant : normalizedPhoneVariants(stripPhoneScheme(phone.uri))) {
+                    byPhone.putIfAbsent(variant, userId);
+                }
+            }
+        }
+
+        if (priv != null) {
+            for (String match : priv) {
+                if (match != null && match.startsWith("tel:")) {
+                    for (String variant : normalizedPhoneVariants(stripPhoneScheme(match))) {
+                        byPhone.putIfAbsent(variant, userId);
+                    }
+                }
+            }
+        }
+    }
+
+    private static String resolveByPhone(Map<String, String> byPhone, String rawPhone) {
+        for (String variant : normalizedPhoneVariants(rawPhone)) {
+            String userId = byPhone.get(variant);
+            if (!TextUtils.isEmpty(userId)) {
+                return userId;
+            }
+        }
+        return null;
+    }
+
+    private static String stripPhoneScheme(String raw) {
+        if (TextUtils.isEmpty(raw)) {
+            return raw;
+        }
+        int idx = raw.indexOf(':');
+        if (idx > 0 && idx + 1 < raw.length()) {
+            String prefix = raw.substring(0, idx).toLowerCase(Locale.US);
+            if ("tel".equals(prefix) || "phone".equals(prefix)) {
+                return raw.substring(idx + 1);
+            }
+        }
+        return raw;
+    }
+
+    private static List<String> normalizedPhoneVariants(String raw) {
+        List<String> variants = new java.util.LinkedList<>();
+        if (TextUtils.isEmpty(raw)) {
+            return variants;
+        }
+
+        String normalized = PhoneNumberUtils.normalizeNumber(raw);
+        if (TextUtils.isEmpty(normalized)) {
+            return variants;
+        }
+
+        variants.add(normalized);
+        if (normalized.startsWith("+")) {
+            variants.add(normalized.substring(1));
+        }
+
+        String digits = normalized.replaceAll("[^0-9]", "");
+        if (!TextUtils.isEmpty(digits)) {
+            variants.add(digits);
+            if (digits.length() > 10) {
+                variants.add(digits.substring(digits.length() - 10));
+            }
+        }
+
+        return variants;
+    }
+
+    private static String getFoundSubscriptionId(Subscription<?, ?> sub) {
+        if (sub == null) {
+            return null;
+        }
+        if (Topic.isP2PType(sub.user)) {
+            return sub.user;
+        }
+        if (Topic.isP2PType(sub.topic)) {
+            return sub.topic;
+        }
+        return null;
+    }
+
+    private static Set<String> decodeUserIds(String encoded) {
+        Set<String> result = new HashSet<>();
+        if (TextUtils.isEmpty(encoded)) {
+            return result;
+        }
+
+        for (String entry : encoded.split(",")) {
+            if (!TextUtils.isEmpty(entry)) {
+                result.add(entry);
+            }
+        }
+        return result;
+    }
+
+    private static void storeMatchedUsers(AccountManager accountManager, Account account, Collection<String> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            accountManager.setUserData(account, ACCKEY_AUTOCHAT_MATCHED_USERS, null);
+            return;
+        }
+        accountManager.setUserData(account, ACCKEY_AUTOCHAT_MATCHED_USERS,
+                TextUtils.join(",", new TreeSet<>(userIds)));
+    }
+
+    private record PendingChatCandidate(String userId, String displayName) {
+    }
+
     // This is called on Websocket thread.
     private class MeListener extends UiUtils.MeEventListener {
         private void updateVisibleInfoFragment() {
@@ -357,6 +717,7 @@ public class ChatsActivity extends BaseActivity
         public void onLogin(int code, String txt) {
             super.onLogin(code, txt);
             UiUtils.attachMeTopic(ChatsActivity.this, mMeTopicListener);
+            scheduleAutoChatSync(0);
         }
 
         @Override
