@@ -59,7 +59,7 @@
                         android:paddingEnd="8dp"
                         android:singleLine="true"
                         android:textColor="@color/colorMessageBubbleUserNamePhoto"
-                        android:textSize="11sp"
+                        android:textSize="12sp"
                         android:textStyle="bold"
                         tools:ignore="RtlSymmetry,SmallSp"
                         tools:text="John Doe" />

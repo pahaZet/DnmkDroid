@@ -782,6 +782,12 @@ public class UiUtils {
     }
 
     public static void setMessageStatusIcon(ImageView holder, int status, int read, int recv) {
+        setMessageStatusIcon(holder, status, read, recv, null);
+    }
+
+    public static void setMessageStatusIcon(ImageView holder, int status, int read, int recv,
+                                            @Nullable Integer deliveredColor) {
+        holder.clearColorFilter();
         if (status <= BaseDb.Status.SENDING.value) {
             holder.setImageResource(R.drawable.ic_schedule);
         } else if (status == BaseDb.Status.FAILED.value) {
@@ -791,6 +797,9 @@ public class UiUtils {
                 holder.setImageResource(R.drawable.ic_done_all2);
             } else if (recv > 0) {
                 holder.setImageResource(R.drawable.ic_done_all);
+                if (deliveredColor != null) {
+                    holder.setColorFilter(deliveredColor);
+                }
             } else {
                 holder.setImageResource(R.drawable.ic_done);
             }
