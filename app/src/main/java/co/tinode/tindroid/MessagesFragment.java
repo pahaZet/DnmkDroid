@@ -1892,8 +1892,10 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
             final View swipeView = mSwipeView;
             final int position = mSwipedPosition;
-            final boolean triggerAction = Math.abs(swipeView.getTranslationX()) >= mTriggerDistance &&
+            final float swipeOffset = swipeView.getTranslationX();
+            final boolean triggerAction = Math.abs(swipeOffset) >= mTriggerDistance &&
                     mMessagesAdapter != null && mMessagesAdapter.canSwipeMessage(position);
+            final boolean forwardSwipe = swipeOffset > 0f;
 
             mSwipeView = null;
             mSwipedPosition = RecyclerView.NO_POSITION;
@@ -1910,7 +1912,11 @@ public class MessagesFragment extends Fragment implements MenuProvider {
                         if (!triggerAction || mMessagesAdapter == null || !isAdded()) {
                             return;
                         }
-                        mMessagesAdapter.replyToMessage(position);
+                        if (forwardSwipe) {
+                            mMessagesAdapter.replyToMessage(position);
+                        } else {
+                            mMessagesAdapter.forwardMessage(position);
+                        }
                     })
                     .start();
         }
