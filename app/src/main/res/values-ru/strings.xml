@@ -21,6 +21,7 @@
 
     <string name="action_clear_messages">Очистить историю сообщений</string>
     <string name="action_new_chat">Новый чат</string>
+    <string name="action_create_group">Создать группу</string>
     <string name="action_about">О приложении</string>
     <string name="action_search">Искать</string>
     <string name="action_add_contact">Добавить контакт</string>

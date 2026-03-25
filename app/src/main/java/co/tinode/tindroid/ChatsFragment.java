@@ -203,7 +203,12 @@ public class ChatsFragment extends Fragment implements ActionMode.Callback, UiUt
             return true;
         }
         int id = menuItem.getItemId();
-        if (id == R.id.action_show_archive) {
+        if (id == R.id.action_create_group) {
+            Intent intent = new Intent(activity, StartChatActivity.class);
+            intent.putExtra(StartChatActivity.INTENT_EXTRA_MODE, StartChatActivity.MODE_CREATE_GROUP);
+            startActivity(intent);
+            return true;
+        } else if (id == R.id.action_show_archive) {
             activity.showFragment(ChatsActivity.FRAGMENT_ARCHIVE, null);
             return true;
         } else if (id == R.id.action_settings) {

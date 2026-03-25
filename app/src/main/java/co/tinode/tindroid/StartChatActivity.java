@@ -19,7 +19,10 @@ public class StartChatActivity extends BaseActivity
         implements ContactsTabFragment.ReadContactsPermissionChecker,
         ImageViewFragment.AvatarCompletionHandler {
 
+    static final String INTENT_EXTRA_MODE = "mode";
+    static final String MODE_CREATE_GROUP = "create_group";
     static final String FRAGMENT_TABS = "tabs";
+    static final String FRAGMENT_CREATE_GROUP = "create_group";
     static final String FRAGMENT_AVATAR_PREVIEW = "avatar_preview";
 
     // Limit the number of times permissions are requested per session.
@@ -42,7 +45,7 @@ public class StartChatActivity extends BaseActivity
         final ActionBar actionBar = getSupportActionBar();
         if (actionBar != null) {
             actionBar.setDisplayHomeAsUpEnabled(true);
-            actionBar.setTitle(R.string.action_new_chat);
+            actionBar.setTitle(isCreateGroupMode() ? R.string.action_create_group : R.string.action_new_chat);
 
             toolbar.setNavigationOnClickListener(v -> {
                 Intent intent = new Intent(StartChatActivity.this, ChatsActivity.class);
@@ -53,7 +56,7 @@ public class StartChatActivity extends BaseActivity
         }
 
         // Add the default fragment.
-        showFragment(FRAGMENT_TABS, null, false);
+        showFragment(isCreateGroupMode() ? FRAGMENT_CREATE_GROUP : FRAGMENT_TABS, null, false);
 
         // Initialize View Model to store avatar bitmap before it's sent to the server.
         mAvatarVM = new ViewModelProvider(this).get(AvatarViewModel.class);
@@ -65,6 +68,10 @@ public class StartChatActivity extends BaseActivity
 
     public void setReadContactsPermissionRequested() {
         mReadContactsPermissionsAlreadyRequested = true;
+    }
+
+    private boolean isCreateGroupMode() {
+        return MODE_CREATE_GROUP.equals(getIntent().getStringExtra(INTENT_EXTRA_MODE));
     }
 
     @Override
@@ -92,6 +99,9 @@ public class StartChatActivity extends BaseActivity
             switch (tag) {
                 case FRAGMENT_TABS:
                     fragment = new StartChatFragment();
+                    break;
+                case FRAGMENT_CREATE_GROUP:
+                    fragment = new CreateGroupFragment();
                     break;
                 case FRAGMENT_AVATAR_PREVIEW:
                     fragment = new ImageViewFragment();
