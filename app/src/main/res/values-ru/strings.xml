@@ -363,4 +363,8 @@
     <string name="note">Заметка</string>
     <string name="wp_image">Обои</string>
     <string name="phone_rejected">Телефон отклонен. Уже имеется</string>
+    <string name="search_tab_chats">Чаты</string>
+    <string name="search_tab_groups">Группы</string>
+    <string name="no_groups">Групп нет</string>
+    <string name="hint_search_chat_list">Поиск чатов и групп</string>
 </resources>

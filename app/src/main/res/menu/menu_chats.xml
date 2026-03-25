@@ -17,6 +17,14 @@
 
     <group android:id="@+id/not_archive">
         <item
+            android:id="@+id/action_search"
+            android:orderInCategory="90"
+            android:title="@string/action_search"
+            android:icon="@drawable/ic_search"
+            app:showAsAction="always"
+            tools:ignore="AlwaysShowAction" />
+
+        <item
             android:id="@+id/action_create_group"
             android:orderInCategory="100"
             android:title="@string/action_create_group"

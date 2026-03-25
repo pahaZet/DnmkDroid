@@ -70,6 +70,7 @@ public class ChatsActivity extends BaseActivity
     static final String FRAGMENT_ACC_ABOUT = "acc_about";
     static final String FRAGMENT_ARCHIVE = "archive";
     static final String FRAGMENT_BANNED = "banned";
+    static final String FRAGMENT_CHAT_SEARCH = "chat_search";
     static final String FRAGMENT_WALLPAPERS = "wallpapers";
     static final String PRIV_ADDRESS_BOOK_NAME = "addressBookName";
 
@@ -162,8 +163,8 @@ public class ChatsActivity extends BaseActivity
 
     private void datasetChanged() {
         Fragment fragment = UiUtils.getVisibleFragment(getSupportFragmentManager());
-        if (fragment instanceof ChatsFragment) {
-            ((ChatsFragment) fragment).datasetChanged();
+        if (fragment instanceof ChatListDataSetListener) {
+            ((ChatListDataSetListener) fragment).datasetChanged();
         }
     }
 
@@ -255,6 +256,9 @@ public class ChatsActivity extends BaseActivity
                     break;
                 case FRAGMENT_CHATLIST:
                     fragment = new ChatsFragment();
+                    break;
+                case FRAGMENT_CHAT_SEARCH:
+                    fragment = new ChatsSearchFragment();
                     break;
                 case FRAGMENT_WALLPAPERS:
                     fragment = new WallpaperFragment();

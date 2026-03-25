@@ -402,4 +402,8 @@
     <string name="wp_image">Wallpaper</string>
     <string name="note">Note</string>
     <string name="phone_rejected">phone rejected</string>
+    <string name="search_tab_chats">Chats</string>
+    <string name="search_tab_groups">Groups</string>
+    <string name="no_groups">No groups</string>
+    <string name="hint_search_chat_list">Search chats and groups</string>
 </resources>

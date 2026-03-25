@@ -50,6 +50,7 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
     private static int sColorOffline;
     private static int sColorOnline;
     private static int sColorNew;
+    private final int mEmptyTextResId;
     private final ClickListener mClickListener;
     private List<ComTopic<VxCard>> mTopics;
     private HashMap<String, Integer> mTopicIndex;
@@ -59,10 +60,15 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
     private Filter mTextFilter = null;
 
     ChatsAdapter(Context context, ClickListener clickListener, @Nullable Filter filter) {
+        this(context, clickListener, filter, R.string.no_chats);
+    }
+
+    ChatsAdapter(Context context, ClickListener clickListener, @Nullable Filter filter, int emptyTextResId) {
         super();
 
         mClickListener = clickListener;
         mTopicFilter = filter != null ? filter : topic -> true;
+        mEmptyTextResId = emptyTextResId;
 
         setHasStableIds(true);
         setTextFilter(null);
@@ -122,6 +128,8 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
             Storage.Message msg = Cache.getTinode().getLastMessage(topic.getName());
             holder.bind(position, topic, msg, mSelectionTracker != null &&
                     mSelectionTracker.isSelected(topic.getName()));
+        } else if (holder.itemView instanceof TextView) {
+            ((TextView) holder.itemView).setText(mEmptyTextResId);
         }
     }
 
@@ -170,7 +178,8 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
 
     void setTextFilter(@Nullable String text) {
         mTextFilter = new Filter() {
-            private final String mQuery = text;
+            private final String mQuery = !TextUtils.isEmpty(text) ?
+                    text.trim().toLowerCase(Locale.getDefault()) : null;
             @Override
             public boolean filter(ComTopic topic) {
                 if (TextUtils.isEmpty(mQuery)) {
@@ -185,6 +194,10 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
                 }
                 hayStack.add(getAddressBookName(topic));
                 hayStack.add(topic.getComment());
+                Storage.Message msg = Cache.getTinode().getLastMessage(topic.getName());
+                if (msg != null && msg.getContent() != null) {
+                    hayStack.add(msg.getContent().toPlainText());
+                }
                 return hayStack.stream()
                         .filter(token -> token != null && token.toLowerCase(Locale.getDefault()).contains(mQuery))
                         .findAny()

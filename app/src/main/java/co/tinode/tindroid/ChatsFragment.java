@@ -38,7 +38,8 @@ import co.tinode.tinodesdk.NotConnectedException;
 import co.tinode.tinodesdk.PromisedReply;
 import co.tinode.tinodesdk.model.ServerMessage;
 
-public class ChatsFragment extends Fragment implements ActionMode.Callback, UiUtils.ProgressIndicator, MenuProvider {
+public class ChatsFragment extends Fragment implements ActionMode.Callback, UiUtils.ProgressIndicator,
+        MenuProvider, ChatListDataSetListener {
     private static final String TAG = "ChatsFragment";
 
     private Boolean mIsArchive;
@@ -203,7 +204,10 @@ public class ChatsFragment extends Fragment implements ActionMode.Callback, UiUt
             return true;
         }
         int id = menuItem.getItemId();
-        if (id == R.id.action_create_group) {
+        if (id == R.id.action_search) {
+            activity.showFragment(ChatsActivity.FRAGMENT_CHAT_SEARCH, null);
+            return true;
+        } else if (id == R.id.action_create_group) {
             Intent intent = new Intent(activity, StartChatActivity.class);
             intent.putExtra(StartChatActivity.INTENT_EXTRA_MODE, StartChatActivity.MODE_CREATE_GROUP);
             startActivity(intent);
@@ -449,7 +453,8 @@ public class ChatsFragment extends Fragment implements ActionMode.Callback, UiUt
         confirmBuilder.show();
     }
 
-    void datasetChanged() {
+    @Override
+    public void datasetChanged() {
         toggleProgressIndicator(false);
         mAdapter.resetContent(getActivity());
     }
