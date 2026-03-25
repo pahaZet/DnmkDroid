@@ -54,6 +54,8 @@
     <color name="colorMessageBubbleOther">#FFFFFFFF</color>
     <color name="colorMessageBubbleOtherFlashing">#FFF2F2F2</color>
     <color name="colorMessageBubbleOtherFlashingLight">#FFFAFAFA</color>
+    <color name="colorMessageBubbleText">#333333</color>
+    <color name="colorMessageBubbleSubText">#888888</color>
 
     <color name="colorReplyBubble">#10333333</color>
     <color name="colorReplyText">#666666</color>

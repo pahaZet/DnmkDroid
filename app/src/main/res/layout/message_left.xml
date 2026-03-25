@@ -37,7 +37,7 @@
                 android:minWidth="112dp"
                 android:paddingStart="14dp"
                 android:paddingEnd="4dp"
-                android:textColor="?android:textColorPrimary"
+                android:textColor="@color/colorMessageBubbleText"
                 tools:ignore="RtlSymmetry"
                 tools:text="Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua." />
 
