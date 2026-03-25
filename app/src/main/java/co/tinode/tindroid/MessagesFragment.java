@@ -26,8 +26,11 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.text.Editable;
+import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
 import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
@@ -53,9 +56,15 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
@@ -183,6 +192,9 @@ public class MessagesFragment extends Fragment implements MenuProvider {
     private int mVisibleSendPanel = R.id.sendMessagePanel;
 
     private PromisedReply.FailureListener<ServerMessage> mFailureListener;
+    private RecyclerView mMentionSuggestionsView;
+    private MentionSuggestionsAdapter mMentionSuggestionsAdapter;
+    private final ArrayList<MentionCandidate> mMentionCandidates = new ArrayList<>();
 
     private final ActivityResultLauncher<String> mFileOpenerRequestPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
@@ -472,6 +484,21 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         editor.setMaxLines(Const.MESSAGE_INPUT_MAX_LINES);
         ViewCompat.setOnReceiveContentListener(editor, SUPPORTED_MIME_TYPES, new StickerReceiver());
 
+        mMentionSuggestionsView = view.findViewById(R.id.mentionSuggestionsList);
+        mMentionSuggestionsView.setLayoutManager(new LinearLayoutManager(activity, RecyclerView.VERTICAL, false));
+        mMentionSuggestionsView.setItemAnimator(null);
+        mMentionSuggestionsView.setNestedScrollingEnabled(false);
+        mMentionSuggestionsAdapter = new MentionSuggestionsAdapter(candidate -> insertMention(editor, candidate));
+        mMentionSuggestionsView.setAdapter(mMentionSuggestionsAdapter);
+        editor.setOnClickListener(v -> updateMentionSuggestions(editor));
+        editor.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) {
+                updateMentionSuggestions(editor);
+            } else {
+                hideMentionSuggestions();
+            }
+        });
+
         // Send notification on key presses
         editor.addTextChangedListener(new TextWatcher() {
             @Override
@@ -510,6 +537,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
             @Override
             public void afterTextChanged(Editable editable) {
+                updateMentionSuggestions(editor);
             }
         });
 
@@ -671,11 +699,23 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
     private void setSendPanelVisible(Activity activity, int id) {
         if (mVisibleSendPanel == id) {
+            if (id == R.id.sendMessagePanel) {
+                EditText input = activity.findViewById(R.id.editMessage);
+                updateMentionSuggestions(input);
+            } else {
+                hideMentionSuggestions();
+            }
             return;
         }
         activity.findViewById(id).setVisibility(View.VISIBLE);
         activity.findViewById(mVisibleSendPanel).setVisibility(View.GONE);
         mVisibleSendPanel = id;
+        if (id == R.id.sendMessagePanel) {
+            EditText input = activity.findViewById(R.id.editMessage);
+            updateMentionSuggestions(input);
+        } else {
+            hideMentionSuggestions();
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -906,6 +946,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
         if (mTopic == null) {
             // Default view when the topic is not available.
+            clearMentionCandidates();
             activity.findViewById(R.id.notReadable).setVisibility(View.VISIBLE);
             activity.findViewById(R.id.notReadableNote).setVisibility(View.VISIBLE);
             setSendPanelVisible(activity, R.id.sendMessageDisabled);
@@ -915,6 +956,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
         UiUtils.setupToolbar(activity, mTopic.getPub(), mTopicName,
                 mTopic.getOnline(), mTopic.getLastSeen(), mTopic.isDeleted(), mTopic.getSubCnt());
+        refreshMentionCandidates();
 
         Acs acs = mTopic.getAccessMode();
         if (acs == null || !acs.isModeDefined()) {
@@ -985,6 +1027,7 @@ public class MessagesFragment extends Fragment implements MenuProvider {
         super.onPause();
 
         releaseAudio(false);
+        hideMentionSuggestions();
 
         final MessageActivity activity = (MessageActivity) requireActivity();
 
@@ -1366,8 +1409,13 @@ public class MessagesFragment extends Fragment implements MenuProvider {
     }
 
     private boolean sendMessage(Drafty content, int seqId, boolean isReplacement) {
+        return sendMessage(content, seqId, isReplacement, null);
+    }
+
+    private boolean sendMessage(Drafty content, int seqId, boolean isReplacement,
+                                @Nullable Collection<String> mentions) {
         MessageActivity activity = (MessageActivity) requireActivity();
-        boolean done = activity.sendMessage(content, seqId, isReplacement);
+        boolean done = activity.sendMessage(content, seqId, isReplacement, mentions);
         if (done) {
             scrollToBottom(false);
         }
@@ -1393,18 +1441,19 @@ public class MessagesFragment extends Fragment implements MenuProvider {
             return;
         }
 
-        String message = inputField.getText().toString().trim();
-        if (!message.isEmpty()) {
-            Drafty msg = Drafty.parse(message);
+        MentionPayload payload = buildMentionPayload(inputField.getText());
+        if (payload != null) {
+            Drafty msg = payload.content;
             boolean isReplacement = false;
             if (mTextAction == UiUtils.MsgAction.EDIT) {
                 isReplacement = true;
             } else if (mQuote != null) {
                 msg = mQuote.append(msg);
             }
-            if (sendMessage(msg, mQuotedSeqID, isReplacement)) {
+            if (sendMessage(msg, mQuotedSeqID, isReplacement, payload.mentions)) {
                 // Message is successfully queued, clear text from the input field and redraw the list.
                 inputField.getText().clear();
+                hideMentionSuggestions();
                 if (mQuotedSeqID > 0) {
                     mTextAction = UiUtils.MsgAction.NONE;
                     mQuotedSeqID = -1;
@@ -1413,6 +1462,265 @@ public class MessagesFragment extends Fragment implements MenuProvider {
                 }
             }
         }
+    }
+
+    private void clearMentionCandidates() {
+        mMentionCandidates.clear();
+        if (mMentionSuggestionsAdapter != null) {
+            mMentionSuggestionsAdapter.submitItems(new ArrayList<>());
+        }
+        hideMentionSuggestions();
+    }
+
+    private void refreshMentionCandidates() {
+        mMentionCandidates.clear();
+        if (mTopic == null) {
+            hideMentionSuggestions();
+            return;
+        }
+
+        Set<String> seen = new LinkedHashSet<>();
+        if (mTopic.isP2PType()) {
+            MentionCandidate candidate = toMentionCandidate(mTopic.getPeer());
+            if (candidate != null && seen.add(candidate.userId)) {
+                mMentionCandidates.add(candidate);
+            }
+        } else {
+            Collection<Subscription<VxCard, PrivateType>> subs = mTopic.getSubscriptions();
+            if (subs != null) {
+                for (Subscription<VxCard, PrivateType> sub : subs) {
+                    MentionCandidate candidate = toMentionCandidate(sub);
+                    if (candidate != null && seen.add(candidate.userId)) {
+                        mMentionCandidates.add(candidate);
+                    }
+                }
+            }
+        }
+
+        mMentionCandidates.sort((left, right) -> left.sortKey.compareToIgnoreCase(right.sortKey));
+        if (mMentionSuggestionsAdapter != null) {
+            mMentionSuggestionsAdapter.submitItems(new ArrayList<>(mMentionCandidates));
+        }
+
+        Activity activity = getActivity();
+        if (activity != null) {
+            EditText input = activity.findViewById(R.id.editMessage);
+            updateMentionSuggestions(input);
+        }
+    }
+
+    @Nullable
+    private MentionCandidate toMentionCandidate(@Nullable Subscription<VxCard, PrivateType> sub) {
+        if (sub == null || TextUtils.isEmpty(sub.user) || Cache.getTinode().isMe(sub.user)) {
+            return null;
+        }
+
+        String displayName = null;
+        if (sub.pub != null && !TextUtils.isEmpty(sub.pub.fn)) {
+            displayName = sub.pub.fn.trim();
+        }
+        String login = resolveMentionLogin(sub.user);
+        if (TextUtils.isEmpty(displayName)) {
+            displayName = !TextUtils.isEmpty(login) ? login : sub.user;
+        }
+        String primaryText = !TextUtils.isEmpty(login) ? "@" + login : displayName;
+        String secondaryText = null;
+        if (!TextUtils.isEmpty(login) && !TextUtils.equals(login, displayName)) {
+            secondaryText = displayName;
+        } else if (!TextUtils.equals(displayName, sub.user)) {
+            secondaryText = sub.user;
+        }
+
+        String searchable = (((!TextUtils.isEmpty(login) ? login + " " : "") + displayName + " " + sub.user)
+                .toLowerCase(Locale.getDefault()));
+        String sortKey = !TextUtils.isEmpty(login) ? login : displayName;
+        return new MentionCandidate(sub.user, displayName, primaryText, secondaryText, searchable, sortKey);
+    }
+
+    @Nullable
+    private String resolveMentionLogin(@Nullable String uid) {
+        if (TextUtils.isEmpty(uid)) {
+            return null;
+        }
+
+        Topic<?, ?, ?, ?> cached = Cache.getTinode().getTopic(uid);
+        if (cached != null) {
+            String alias = cached.alias();
+            if (!TextUtils.isEmpty(alias)) {
+                return alias;
+            }
+        }
+
+        if (mTopic != null && mTopic.isP2PType() && uid.equals(mTopic.getName())) {
+            String alias = mTopic.alias();
+            if (!TextUtils.isEmpty(alias)) {
+                return alias;
+            }
+        }
+
+        return null;
+    }
+
+    private void updateMentionSuggestions(@Nullable EditText editor) {
+        if (editor == null || mMentionSuggestionsAdapter == null || mMentionSuggestionsView == null ||
+                mVisibleSendPanel != R.id.sendMessagePanel || !editor.hasFocus()) {
+            hideMentionSuggestions();
+            return;
+        }
+
+        MentionQuery query = findActiveMentionQuery(editor.getText(), editor.getSelectionStart());
+        if (query == null) {
+            hideMentionSuggestions();
+            return;
+        }
+
+        List<MentionCandidate> filtered = new ArrayList<>();
+        String lower = query.filter.toLowerCase(Locale.getDefault());
+        for (MentionCandidate candidate : mMentionCandidates) {
+            if (TextUtils.isEmpty(lower) || candidate.searchableText.contains(lower)) {
+                filtered.add(candidate);
+            }
+        }
+
+        if (filtered.isEmpty()) {
+            hideMentionSuggestions();
+            return;
+        }
+
+        mMentionSuggestionsAdapter.submitItems(filtered);
+        activitySetVisibility(R.id.mentionSuggestionsCard, View.VISIBLE);
+    }
+
+    private void hideMentionSuggestions() {
+        activitySetVisibility(R.id.mentionSuggestionsCard, View.GONE);
+    }
+
+    private void activitySetVisibility(int id, int visibility) {
+        Activity activity = getActivity();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+            return;
+        }
+        View view = activity.findViewById(id);
+        if (view != null) {
+            view.setVisibility(visibility);
+        }
+    }
+
+    @Nullable
+    private MentionQuery findActiveMentionQuery(@Nullable Editable editable, int selectionStart) {
+        if (editable == null || selectionStart < 0 || selectionStart > editable.length()) {
+            return null;
+        }
+
+        int at = selectionStart - 1;
+        while (at >= 0) {
+            char current = editable.charAt(at);
+            if (Character.isWhitespace(current)) {
+                return null;
+            }
+            if (current == '@') {
+                break;
+            }
+            at--;
+        }
+
+        if (at < 0 || editable.charAt(at) != '@') {
+            return null;
+        }
+
+        if (at > 0) {
+            char previous = editable.charAt(at - 1);
+            if (Character.isLetterOrDigit(previous) || previous == '_') {
+                return null;
+            }
+        }
+
+        int tokenEnd = selectionStart;
+        while (tokenEnd < editable.length() && !Character.isWhitespace(editable.charAt(tokenEnd))) {
+            tokenEnd++;
+        }
+
+        String filter = editable.subSequence(at + 1, selectionStart).toString().trim();
+        return new MentionQuery(at, tokenEnd, filter);
+    }
+
+    private void insertMention(@NonNull EditText editor, @NonNull MentionCandidate candidate) {
+        MentionQuery query = findActiveMentionQuery(editor.getText(), editor.getSelectionStart());
+        if (query == null) {
+            hideMentionSuggestions();
+            return;
+        }
+
+        Editable editable = editor.getText();
+        if (editable == null) {
+            hideMentionSuggestions();
+            return;
+        }
+
+        String replacement = candidate.displayName + " ";
+        editable.replace(query.start, query.end, replacement);
+        int mentionEnd = query.start + candidate.displayName.length();
+        editable.setSpan(new MentionSpan(candidate.userId), query.start, mentionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        editable.setSpan(new ForegroundColorSpan(ContextCompat.getColor(requireContext(), R.color.colorAccent)),
+                query.start, mentionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        editable.setSpan(new StyleSpan(Typeface.BOLD),
+                query.start, mentionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        editor.setSelection(query.start + replacement.length());
+        hideMentionSuggestions();
+    }
+
+    @Nullable
+    private MentionPayload buildMentionPayload(@Nullable Editable editable) {
+        if (editable == null) {
+            return null;
+        }
+
+        String raw = editable.toString();
+        int start = 0;
+        while (start < raw.length() && Character.isWhitespace(raw.charAt(start))) {
+            start++;
+        }
+        int end = raw.length();
+        while (end > start && Character.isWhitespace(raw.charAt(end - 1))) {
+            end--;
+        }
+        if (start >= end) {
+            return null;
+        }
+
+        MentionSpan[] spans = editable.getSpans(start, end, MentionSpan.class);
+        Arrays.sort(spans, (left, right) ->
+                Integer.compare(editable.getSpanStart(left), editable.getSpanStart(right)));
+
+        Drafty drafty = new Drafty();
+        LinkedHashSet<String> mentions = new LinkedHashSet<>();
+        int cursor = start;
+        for (MentionSpan span : spans) {
+            int spanStart = Math.max(start, editable.getSpanStart(span));
+            int spanEnd = Math.min(end, editable.getSpanEnd(span));
+            if (spanStart < cursor || spanEnd <= spanStart) {
+                continue;
+            }
+
+            if (cursor < spanStart) {
+                drafty.append(Drafty.parse(raw.substring(cursor, spanStart)));
+            }
+
+            String mentionText = raw.substring(spanStart, spanEnd);
+            if (!TextUtils.isEmpty(mentionText) && !TextUtils.isEmpty(span.userId)) {
+                drafty.append(Drafty.mention(mentionText, span.userId));
+                mentions.add(span.userId);
+            } else {
+                drafty.append(Drafty.parse(mentionText));
+            }
+            cursor = spanEnd;
+        }
+
+        if (cursor < end) {
+            drafty.append(Drafty.parse(raw.substring(cursor, end)));
+        }
+
+        return new MentionPayload(drafty, new ArrayList<>(mentions));
     }
 
     private void sendAudio(@NonNull AppCompatActivity activity) {
@@ -1629,6 +1937,113 @@ public class MessagesFragment extends Fragment implements MenuProvider {
 
             // Return content we did not handle.
             return split.second;
+        }
+    }
+
+    private interface MentionSelectListener {
+        void onMentionSelected(@NonNull MentionCandidate candidate);
+    }
+
+    private static final class MentionCandidate {
+        final String userId;
+        final String displayName;
+        final String primaryText;
+        final String secondaryText;
+        final String searchableText;
+        final String sortKey;
+
+        private MentionCandidate(String userId, String displayName,
+                                 String primaryText, String secondaryText,
+                                 String searchableText, String sortKey) {
+            this.userId = userId;
+            this.displayName = displayName;
+            this.primaryText = primaryText;
+            this.secondaryText = secondaryText;
+            this.searchableText = searchableText;
+            this.sortKey = sortKey;
+        }
+    }
+
+    private static final class MentionQuery {
+        final int start;
+        final int end;
+        final String filter;
+
+        private MentionQuery(int start, int end, String filter) {
+            this.start = start;
+            this.end = end;
+            this.filter = filter;
+        }
+    }
+
+    private static final class MentionSpan {
+        final String userId;
+
+        private MentionSpan(String userId) {
+            this.userId = userId;
+        }
+    }
+
+    private static final class MentionPayload {
+        final Drafty content;
+        final ArrayList<String> mentions;
+
+        private MentionPayload(Drafty content, ArrayList<String> mentions) {
+            this.content = content;
+            this.mentions = mentions;
+        }
+    }
+
+    private static final class MentionViewHolder extends RecyclerView.ViewHolder {
+        final TextView primary;
+        final TextView secondary;
+
+        private MentionViewHolder(@NonNull View itemView) {
+            super(itemView);
+            primary = itemView.findViewById(android.R.id.text1);
+            secondary = itemView.findViewById(android.R.id.text2);
+        }
+    }
+
+    private static final class MentionSuggestionsAdapter extends RecyclerView.Adapter<MentionViewHolder> {
+        private final ArrayList<MentionCandidate> mItems = new ArrayList<>();
+        private final MentionSelectListener mListener;
+
+        private MentionSuggestionsAdapter(@NonNull MentionSelectListener listener) {
+            mListener = listener;
+        }
+
+        void submitItems(@NonNull List<MentionCandidate> items) {
+            mItems.clear();
+            mItems.addAll(items);
+            notifyDataSetChanged();
+        }
+
+        @NonNull
+        @Override
+        public MentionViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View view = LayoutInflater.from(parent.getContext())
+                    .inflate(android.R.layout.simple_list_item_2, parent, false);
+            return new MentionViewHolder(view);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull MentionViewHolder holder, int position) {
+            MentionCandidate item = mItems.get(position);
+            holder.primary.setText(item.primaryText);
+            if (TextUtils.isEmpty(item.secondaryText)) {
+                holder.secondary.setVisibility(View.GONE);
+                holder.secondary.setText(null);
+            } else {
+                holder.secondary.setVisibility(View.VISIBLE);
+                holder.secondary.setText(item.secondaryText);
+            }
+            holder.itemView.setOnClickListener(v -> mListener.onMentionSelected(item));
+        }
+
+        @Override
+        public int getItemCount() {
+            return mItems.size();
         }
     }
 

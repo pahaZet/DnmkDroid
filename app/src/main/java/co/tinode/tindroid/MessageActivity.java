@@ -794,11 +794,27 @@ public class MessageActivity extends BaseActivity
     }
 
     boolean sendMessage(Drafty content, int seq, boolean isReplacement) {
+        return sendMessage(content, seq, isReplacement, null);
+    }
+
+    boolean sendMessage(Drafty content, int seq, boolean isReplacement, @Nullable Collection<String> mentions) {
         if (mTopic != null) {
             Map<String,Object> head = seq > 0 ?
                     (isReplacement ? Tinode.headersForReplacement(seq) :
                             Tinode.headersForReply(seq)) :
                     null;
+            if (mentions != null) {
+                List<String> resolvedMentions = mentions.stream()
+                        .filter(mention -> !TextUtils.isEmpty(mention))
+                        .distinct()
+                        .collect(Collectors.toList());
+                if (!resolvedMentions.isEmpty()) {
+                    if (head == null) {
+                        head = new java.util.HashMap<>();
+                    }
+                    head.put("mentions", resolvedMentions);
+                }
+            }
             PromisedReply<ServerMessage> done = mTopic.publish(content, head);
             BaseDb.getInstance().getStore().msgPruneFailed(mTopic);
             runMessagesLoader(); // Refreshes the messages: hides removed, shows pending.

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:card_view="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/sendMessagePanel"
     android:layout_width="match_parent"
@@ -43,6 +44,27 @@
             tools:ignore="RtlSymmetry"
             tools:text="Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua." />
     </LinearLayout>
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/mentionSuggestionsCard"
+        android:layout_width="match_parent"
+        android:layout_height="160dp"
+        android:layout_marginBottom="6dp"
+        android:visibility="gone"
+        card_view:cardBackgroundColor="?android:colorBackground"
+        card_view:cardCornerRadius="12dp"
+        card_view:cardElevation="2dp">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/mentionSuggestionsList"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:nestedScrollingEnabled="false"
+            android:overScrollMode="ifContentScrolls"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp" />
+    </androidx.cardview.widget.CardView>
 
     <LinearLayout
         android:layout_width="match_parent"
