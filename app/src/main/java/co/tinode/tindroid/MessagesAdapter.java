@@ -820,8 +820,10 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                     UiUtils.setAvatar(holder.mAvatar, sub.pub, sub.user, false);
                 }
 
-                if (holder.mUserName != null && sub.pub != null) {
-                    holder.mUserName.setText(sub.pub.fn);
+                if (holder.mUserName != null) {
+                    holder.mUserName.setText(sub.pub != null ? sub.pub.fn : null);
+                    holder.mUserName.setTextColor(UiUtils.avatarTextColor(
+                            holder.itemView.getContext(), sub.pub, sub.user, false));
                 }
             } else {
                 if (holder.mAvatar != null) {
@@ -832,6 +834,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                     span.setSpan(new StyleSpan(Typeface.ITALIC), 0, span.length(),
                             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                     holder.mUserName.setText(span);
+                    holder.mUserName.setTextColor(holder.itemView.getContext().getResources()
+                            .getColor(R.color.colorMessageBubbleUserNamePhoto, null));
                 }
             }
         }
