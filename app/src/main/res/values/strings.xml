@@ -15,7 +15,7 @@
 
     <string name="login_hint">Login</string>
     <string name="password_hint">Password</string>
-    <string name="new_message_hint">New message</string>
+    <string name="new_message_hint">Message</string>
     <string name="send_message_button_hint">Send message</string>
     <string name="send_image_button_hint">Send image</string>
     <string name="send_file_button_hint">Send file</string>

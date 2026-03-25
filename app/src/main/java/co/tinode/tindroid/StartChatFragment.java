@@ -44,7 +44,8 @@ public class StartChatFragment extends Fragment {
         viewPager.setAdapter(new PagerAdapter(activity));
         // This has no effect. It looks like an Android bug.
         viewPager.setCurrentItem(initialTab, false);
-        new TabLayoutMediator(tabLayout, viewPager, (tab, position) -> tab.setText(TAB_NAMES[position])).attach();
+        new TabLayoutMediator(tabLayout, viewPager, true, false,
+                (tab, position) -> tab.setText(TAB_NAMES[position])).attach();
     }
 
     @Override

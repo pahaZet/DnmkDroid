@@ -1,12 +1,11 @@
 package co.tinode.tindroid;
 
-import android.app.Activity;
-import android.app.SearchManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.provider.ContactsContract;
 import android.text.TextUtils;
 import android.util.Log;
@@ -46,6 +45,7 @@ import co.tinode.tinodesdk.model.Subscription;
 public class FindFragment extends Fragment implements UiUtils.ProgressIndicator, MenuProvider {
 
     private static final String TAG = "FindFragment";
+    private static final String STATE_SEARCH_QUERY = "searchQuery";
     private static final int SEARCH_REQUEST_DELAY = 1000;
     private static final int MIN_TAG_LENGTH = 4;
     private static final Pattern SINGLE_TAG_TEST = Pattern.compile("[\\s,:]");
@@ -57,6 +57,8 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
     private String mSearchTerm;
     private FindAdapter mAdapter;
     private CircleProgressView mProgress;
+    private SearchView mSearchView;
+    private final Handler mSearchHandler = new Handler(Looper.getMainLooper());
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -66,14 +68,14 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
         mFndListener = new FndListener();
 
         if (savedInstanceState != null) {
-            mSearchTerm = savedInstanceState.getString(SearchManager.QUERY);
+            mSearchTerm = savedInstanceState.getString(STATE_SEARCH_QUERY);
         }
     }
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
-        return inflater.inflate(R.layout.fragment_contacts, container, false);
+        return inflater.inflate(R.layout.fragment_find, container, false);
     }
 
     @Override
@@ -95,6 +97,8 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
         rv.setAdapter(mAdapter);
 
         mProgress = fragment.findViewById(R.id.progressCircle);
+        mSearchView = fragment.findViewById(R.id.searchView);
+        setupSearchView();
     }
 
     @Override
@@ -115,6 +119,7 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
     @Override
     public void onPause() {
         super.onPause();
+        mSearchHandler.removeCallbacksAndMessages(null);
 
         if (mFndTopic != null) {
             mFndTopic.remListener(mFndListener);
@@ -131,7 +136,7 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
         super.onSaveInstanceState(outState);
 
         if (!TextUtils.isEmpty(mSearchTerm)) {
-            outState.putString(SearchManager.QUERY, mSearchTerm);
+            outState.putString(STATE_SEARCH_QUERY, mSearchTerm);
         }
     }
 
@@ -139,78 +144,9 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
     public void onCreateMenu(@NonNull Menu menu, @NonNull MenuInflater inflater) {
         menu.clear();
         inflater.inflate(R.menu.menu_contacts, menu);
-
-        final FragmentActivity activity = getActivity();
-        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
-            return;
-        }
-
-        final SearchManager searchManager =
-                (SearchManager) activity.getSystemService(Activity.SEARCH_SERVICE);
-
-        if (searchManager == null) {
-            return;
-        }
-
         MenuItem searchItem = menu.findItem(R.id.action_search);
-        final SearchView searchView = (SearchView) searchItem.getActionView();
-        if (searchView == null) {
-            return;
-        }
-        searchView.setQueryHint(getResources().getString(R.string.hint_search_tags));
-        searchView.setSearchableInfo(searchManager.getSearchableInfo(activity.getComponentName()));
-        searchView.setFocusable(true);
-        searchView.setFocusableInTouchMode(true);
-
-        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
-            private Handler mHandler;
-
-            @Override
-            public boolean onQueryTextSubmit(String queryText) {
-                if (mHandler != null) {
-                    mHandler.removeCallbacksAndMessages(null);
-                }
-
-                mSearchTerm = doSearch(queryText);
-                return true;
-            }
-
-            @Override
-            public boolean onQueryTextChange(final String queryText) {
-
-                if (mHandler == null) {
-                    mHandler = new Handler();
-                } else {
-                    mHandler.removeCallbacksAndMessages(null);
-                }
-
-                mHandler.postDelayed(() -> mSearchTerm = doSearch(queryText), SEARCH_REQUEST_DELAY);
-                return true;
-            }
-        });
-
-        searchItem.setOnActionExpandListener(new MenuItem.OnActionExpandListener() {
-            @Override
-            public boolean onMenuItemActionExpand(@NonNull MenuItem menuItem) {
-                searchView.setIconified(false);
-                searchView.requestFocus();
-                searchView.requestFocusFromTouch();
-                return true;
-            }
-
-            @Override
-            public boolean onMenuItemActionCollapse(@NonNull MenuItem menuItem) {
-                searchView.clearFocus();
-                mSearchTerm = doSearch("");
-                return true;
-            }
-        });
-
-
-        if (mSearchTerm != null) {
-            final String savedSearchTerm = mSearchTerm;
-            searchItem.expandActionView();
-            searchView.setQuery(savedSearchTerm, false);
+        if (searchItem != null) {
+            searchItem.setVisible(false);
         }
     }
 
@@ -274,6 +210,40 @@ public class FindFragment extends Fragment implements UiUtils.ProgressIndicator,
 
     private void onFindQueryResult() {
         mAdapter.resetFound(getActivity(), mSearchTerm);
+    }
+
+    private void setupSearchView() {
+        if (mSearchView == null) {
+            return;
+        }
+
+        mSearchView.setIconifiedByDefault(false);
+        mSearchView.setSubmitButtonEnabled(false);
+        mSearchView.setMaxWidth(Integer.MAX_VALUE);
+        mSearchView.setQueryHint(getResources().getString(R.string.hint_search_tags));
+        mSearchView.clearFocus();
+        mSearchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextSubmit(String queryText) {
+                mSearchHandler.removeCallbacksAndMessages(null);
+                mSearchTerm = doSearch(queryText);
+                mSearchView.clearFocus();
+                return true;
+            }
+
+            @Override
+            public boolean onQueryTextChange(String queryText) {
+                mSearchHandler.removeCallbacksAndMessages(null);
+                mSearchHandler.postDelayed(() -> mSearchTerm = doSearch(queryText), SEARCH_REQUEST_DELAY);
+                return true;
+            }
+        });
+
+        CharSequence currentQuery = mSearchView.getQuery();
+        String queryText = !TextUtils.isEmpty(mSearchTerm) ? mSearchTerm : "";
+        if (!TextUtils.equals(currentQuery, queryText)) {
+            mSearchView.setQuery(queryText, false);
+        }
     }
 
     private String doSearch(String query) {
