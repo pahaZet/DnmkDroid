@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorMessageBubbleMine">#FF202020</color>
-    <color name="colorMessageBubbleMineFlashing">#F666</color>
-    <color name="colorMessageBubbleMineFlashingLight">#F444</color>
-    <color name="colorMessageBubbleOther">#FF003308</color>
-    <color name="colorMessageBubbleOtherFlashing">#FF558870</color>
-    <color name="colorMessageBubbleOtherFlashingLight">#FF305530</color>
+    <color name="colorMessageBubbleMine">#FFFFFFFF</color>
+    <color name="colorMessageBubbleMineFlashing">#FFF2F2F2</color>
+    <color name="colorMessageBubbleMineFlashingLight">#FFFAFAFA</color>
+    <color name="colorMessageBubbleOther">#FFFFFFFF</color>
+    <color name="colorMessageBubbleOtherFlashing">#FFF2F2F2</color>
+    <color name="colorMessageBubbleOtherFlashingLight">#FFFAFAFA</color>
 
     <color name="colorReplyBubble">#10CCCCCC</color>
     <color name="colorReplyText">#CCCCCC</color>
