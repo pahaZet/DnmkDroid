@@ -367,4 +367,6 @@
     <string name="search_tab_groups">Группы</string>
     <string name="no_groups">Групп нет</string>
     <string name="hint_search_chat_list">Поиск чатов и групп</string>
+    <string name="typing_short">печатает...</string>
+    <string name="typing_users">печатает %1$s</string>
 </resources>

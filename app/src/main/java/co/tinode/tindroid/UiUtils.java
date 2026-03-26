@@ -143,6 +143,12 @@ public class UiUtils {
     static void setupToolbar(final Activity activity, final VxCard pub,
                              final String topicName, final boolean online, final Date lastSeen,
                              boolean deleted, int subcnt) {
+        setupToolbar(activity, pub, topicName, online, lastSeen, deleted, subcnt, null);
+    }
+
+    static void setupToolbar(final Activity activity, final VxCard pub,
+                             final String topicName, final boolean online, final Date lastSeen,
+                             boolean deleted, int subcnt, @Nullable CharSequence subtitleOverride) {
         if (activity == null || activity.isDestroyed() || activity.isFinishing()) {
             return;
         }
@@ -154,34 +160,39 @@ public class UiUtils {
 
         activity.runOnUiThread(() -> {
             if (!TextUtils.isEmpty(topicName)) {
-                Boolean showOnline = online;
+                Boolean showOnline = Topic.isP2PType(topicName) ? online : null;
                 String title = null;
+                CharSequence subtitle = subtitleOverride;
                 if (Topic.isSlfType(topicName)) {
                     showOnline = null;
                     title = activity.getString(R.string.self_topic_title);
-                    toolbar.setSubtitle(null);
                 } else if (ComTopic.isChannel(topicName)) {
                     showOnline = null;
-                    if (subcnt > 0) {
-                        toolbar.setSubtitle(activity.getResources().getString(R.string.subscribers, subcnt));
-                    } else {
-                        toolbar.setSubtitle(R.string.channel);
+                    if (TextUtils.isEmpty(subtitle)) {
+                        subtitle = subcnt > 0 ?
+                                activity.getResources().getString(R.string.subscribers, subcnt) :
+                                activity.getString(R.string.channel);
                     }
                 } else if (deleted) {
                     showOnline = null;
-                    toolbar.setSubtitle(R.string.deleted);
-                } else if (online) {
-                    toolbar.setSubtitle(activity.getString(R.string.online_now));
-                } else if (lastSeen != null) {
-                    toolbar.setSubtitle(UtilsString.relativeDateFormat(activity, lastSeen));
-                } else {
-                    toolbar.setSubtitle(null);
+                    if (TextUtils.isEmpty(subtitle)) {
+                        subtitle = activity.getString(R.string.deleted);
+                    }
+                } else if (Topic.isP2PType(topicName)) {
+                    if (TextUtils.isEmpty(subtitle)) {
+                        if (online) {
+                            subtitle = activity.getString(R.string.online_now);
+                        } else if (lastSeen != null) {
+                            subtitle = UtilsString.relativeDateFormat(activity, lastSeen);
+                        }
+                    }
                 }
                 if (TextUtils.isEmpty(title)) {
                     title = pub != null && pub.fn != null ?
                             pub.fn : activity.getString(R.string.placeholder_contact_title);
                 }
                 toolbar.setTitle(title);
+                toolbar.setSubtitle(subtitle);
                 constructToolbarLogo(activity, pub, topicName, showOnline, deleted);
             } else {
                 toolbar.setTitle(R.string.app_name);

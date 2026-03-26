@@ -286,6 +286,8 @@
     <string name="action_edit">Edit</string>
     <string name="action_save">Save</string>
     <string name="online_now">online now</string>
+    <string name="typing_short">typing...</string>
+    <string name="typing_users">typing %1$s</string>
     <string name="topic_settings">Conversation settings</string>
     <string name="action_reply">Reply</string>
     <string name="action_forward">Forward</string>

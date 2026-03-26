@@ -31,11 +31,11 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Timer;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -169,7 +169,8 @@ public class MessageActivity extends BaseActivity
                 UiUtils.onContactsPermissionsGranted(this);
             });
 
-    private Timer mTypingAnimationTimer;
+    private final LinkedHashMap<String, String> mTypingUsers = new LinkedHashMap<>();
+    private final Map<String, Runnable> mTypingExpirationTasks = new LinkedHashMap<>();
     private String mMessageText = null;
     private PausableSingleThreadExecutor mMessageSender = null;
     private String mTopicName = null;
@@ -363,11 +364,10 @@ public class MessageActivity extends BaseActivity
 
             Cache.setSelectedTopicName(topicName);
             mTopicName = topicName;
+            clearTypingIndicators(false);
 
             mPinHash = -1;
             if (mTopic == null) {
-                UiUtils.setupToolbar(this, null,
-                        mTopicName, false, null, false, 0);
                 try {
                     // noinspection unchecked
                     mTopic = (ComTopic<VxCard>) tinode.newTopic(mTopicName, null);
@@ -375,12 +375,12 @@ public class MessageActivity extends BaseActivity
                     Log.w(TAG, "New topic is a non-comm topic: " + mTopicName);
                     return false;
                 }
+                refreshToolbar();
                 showFragment(FRAGMENT_INVALID, null, false);
 
                 // Check if another fragment is already visible. If so, don't change it.
             } else if (forceReset || UiUtils.getVisibleFragment(getSupportFragmentManager()) == null) {
-                UiUtils.setupToolbar(this, mTopic.getPub(), mTopicName,
-                        mTopic.getOnline(), mTopic.getLastSeen(), mTopic.isDeleted(), mTopic.getSubCnt());
+                refreshToolbar();
 
                 // Reset requested or no fragment is visible. Show default and clear back stack.
                 getSupportFragmentManager().popBackStack(null, FragmentManager.POP_BACK_STACK_INCLUSIVE);
@@ -519,8 +519,7 @@ public class MessageActivity extends BaseActivity
 
     private void topicAttach() {
         if (mTopic.isDeleted()) {
-            UiUtils.setupToolbar(this, mTopic.getPub(), mTopicName,
-                    false, null, true, 0);
+            refreshToolbar();
             maybeShowMessagesFragmentOnAttach();
             return;
         }
@@ -555,9 +554,7 @@ public class MessageActivity extends BaseActivity
                         runOnUiThread(() -> {
                             Fragment fragment = maybeShowMessagesFragmentOnAttach();
                             if (fragment instanceof MessagesFragment) {
-                                UiUtils.setupToolbar(MessageActivity.this, mTopic.getPub(),
-                                        mTopicName, mTopic.getOnline(), mTopic.getLastSeen(), mTopic.isDeleted(),
-                                        mTopic.getSubCnt());
+                                refreshToolbar();
                             }
                         });
                         // Submit pending messages for processing: publish queued,
@@ -591,15 +588,143 @@ public class MessageActivity extends BaseActivity
 
     // Clean up everything related to the topic being replaced of removed.
     private void topicDetach(@Nullable ComTopic<VxCard> topic) {
-        if (mTypingAnimationTimer != null) {
-            mTypingAnimationTimer.cancel();
-            mTypingAnimationTimer = null;
-        }
+        clearTypingIndicators(false);
 
         if (topic != null) {
             topic.remListener(mTopicEventListener);
             topic.leave();
         }
+    }
+
+    void refreshToolbar() {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+
+        if (mTopic == null) {
+            UiUtils.setupToolbar(this, null, mTopicName, false, null, false, 0, null);
+            return;
+        }
+
+        UiUtils.setupToolbar(this, mTopic.getPub(), mTopic.getName(),
+                mTopic.getOnline(), mTopic.getLastSeen(), mTopic.isDeleted(), mTopic.getSubCnt(),
+                getTypingIndicatorText());
+    }
+
+    @Nullable
+    private CharSequence getTypingIndicatorText() {
+        if (mTopic == null || mTypingUsers.isEmpty()) {
+            return null;
+        }
+
+        if (mTopic.isP2PType()) {
+            return getString(R.string.typing_short);
+        }
+
+        if (mTopic.isGrpType() && !mTopic.isChannel()) {
+            return getString(R.string.typing_users, TextUtils.join(", ", mTypingUsers.values()));
+        }
+
+        return null;
+    }
+
+    private void onRemoteKeyPress(@Nullable String uid) {
+        if (mTopic == null || TextUtils.isEmpty(uid) || Cache.getTinode().isMe(uid)) {
+            return;
+        }
+
+        String label = resolveTypingLabel(uid);
+        mTypingUsers.remove(uid);
+        mTypingUsers.put(uid, label);
+
+        Runnable oldTask = mTypingExpirationTasks.remove(uid);
+        if (oldTask != null) {
+            mNoteReadHandler.removeCallbacks(oldTask);
+        }
+
+        Runnable newTask = () -> {
+            mTypingExpirationTasks.remove(uid);
+            if (mTypingUsers.remove(uid) != null) {
+                refreshToolbar();
+            }
+        };
+        mTypingExpirationTasks.put(uid, newTask);
+        mNoteReadHandler.postDelayed(newTask, TYPING_INDICATOR_DURATION);
+        refreshToolbar();
+    }
+
+    private void clearTypingIndicator(@Nullable String uid) {
+        if (TextUtils.isEmpty(uid)) {
+            return;
+        }
+
+        Runnable task = mTypingExpirationTasks.remove(uid);
+        if (task != null) {
+            mNoteReadHandler.removeCallbacks(task);
+        }
+
+        if (mTypingUsers.remove(uid) != null) {
+            refreshToolbar();
+        }
+    }
+
+    private void clearTypingIndicators(boolean refreshToolbar) {
+        for (Runnable task : mTypingExpirationTasks.values()) {
+            mNoteReadHandler.removeCallbacks(task);
+        }
+        mTypingExpirationTasks.clear();
+
+        if (!mTypingUsers.isEmpty()) {
+            mTypingUsers.clear();
+            if (refreshToolbar) {
+                refreshToolbar();
+            }
+        }
+    }
+
+    @Nullable
+    private String resolveTypingAlias(@Nullable String uid) {
+        if (TextUtils.isEmpty(uid)) {
+            return null;
+        }
+
+        Topic<?, ?, ?, ?> cached = Cache.getTinode().getTopic(uid);
+        if (cached != null) {
+            String alias = cached.alias();
+            if (!TextUtils.isEmpty(alias)) {
+                return alias;
+            }
+        }
+
+        if (mTopic != null && mTopic.isP2PType() && TextUtils.equals(uid, mTopic.getName())) {
+            String alias = mTopic.alias();
+            if (!TextUtils.isEmpty(alias)) {
+                return alias;
+            }
+        }
+
+        return null;
+    }
+
+    @NonNull
+    private String resolveTypingLabel(@Nullable String uid) {
+        if (TextUtils.isEmpty(uid)) {
+            return "";
+        }
+
+        String alias = resolveTypingAlias(uid);
+        if (!TextUtils.isEmpty(alias)) {
+            return alias;
+        }
+
+        if (mTopic != null) {
+            Subscription<VxCard, PrivateType> sub = mTopic.getSubscription(uid);
+            if (sub != null && sub.pub != null && !TextUtils.isEmpty(sub.pub.fn)) {
+                return sub.pub.fn.trim();
+            }
+        }
+
+        return uid;
     }
 
     @Override
@@ -1049,10 +1174,9 @@ public class MessageActivity extends BaseActivity
             if (data != null && !Cache.getTinode().isMe(data.from)) {
                 sendNoteRead(data.seq);
             }
-            // Cancel typing animation.
+            final String senderId = data != null ? data.from : null;
             runOnUiThread(() -> {
-                mTypingAnimationTimer =
-                        UiUtils.toolbarTypingIndicator(MessageActivity.this, mTypingAnimationTimer, -1);
+                clearTypingIndicator(senderId);
                 if (incomingRegularMessage) {
                     MessagesFragment fragment = (MessagesFragment) getSupportFragmentManager()
                             .findFragmentByTag(FRAGMENT_MESSAGES);
@@ -1148,10 +1272,9 @@ public class MessageActivity extends BaseActivity
                     });
                     break;
                 case KP:
+                    final String typingUserId = !TextUtils.isEmpty(info.from) ? info.from : info.src;
                     runOnUiThread(() -> {
-                        // Show typing indicator as animation over avatar in toolbar
-                        mTypingAnimationTimer = UiUtils.toolbarTypingIndicator(MessageActivity.this,
-                                mTypingAnimationTimer, TYPING_INDICATOR_DURATION);
+                        onRemoteKeyPress(typingUserId);
                     });
                     break;
                 default:
@@ -1199,8 +1322,7 @@ public class MessageActivity extends BaseActivity
                     if (fragment instanceof DataSetChangeListener) {
                         ((DataSetChangeListener) fragment).notifyDataSetChanged();
                     } else if (fragment instanceof MessagesFragment) {
-                        UiUtils.setupToolbar(MessageActivity.this, mTopic.getPub(), mTopic.getName(),
-                                mTopic.getOnline(), mTopic.getLastSeen(), mTopic.isDeleted(), mTopic.getSubCnt());
+                        refreshToolbar();
 
                         ((MessagesFragment) fragment).notifyDataSetChanged(true);
                     }
@@ -1240,8 +1362,7 @@ public class MessageActivity extends BaseActivity
         public void onOnline(final boolean online) {
             runOnUiThread(() -> {
                 if (mTopic != null) {
-                    UiUtils.toolbarSetOnline(MessageActivity.this,
-                            mTopic.getOnline(), mTopic.getLastSeen());
+                    refreshToolbar();
                 }
             });
 
