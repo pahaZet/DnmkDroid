@@ -50,23 +50,22 @@ public class AccHelpFragment extends Fragment {
         BrandingConfig config = BrandingConfig.getConfig(activity);
 
         // Make policy links clickable.
-        makeViewClickable(activity, fragment.findViewById(R.id.contactUs), R.string.contact_us,
-                config != null && !TextUtils.isEmpty(config.contact_us_uri) ?
-                        config.contact_us_uri : getString(R.string.contact_us_uri));
-        makeViewClickable(activity, fragment.findViewById(R.id.termsOfUse), R.string.terms_of_use,
-                config != null && !TextUtils.isEmpty(config.tos_uri) ?
-                        config.tos_uri : getString(R.string.terms_of_use_uri));
-        makeViewClickable(activity, fragment.findViewById(R.id.privacyPolicy), R.string.privacy_policy,
-                config != null && !TextUtils.isEmpty(config.privacy_uri) ?
-                        config.privacy_uri : getString(R.string.privacy_policy_uri));
+//        makeViewClickable(activity, fragment.findViewById(R.id.contactUs), R.string.contact_us,
+//                config != null && !TextUtils.isEmpty(config.contact_us_uri) ?
+//                        config.contact_us_uri : getString(R.string.contact_us_uri));
+//        makeViewClickable(activity, fragment.findViewById(R.id.termsOfUse), R.string.terms_of_use,
+//                config != null && !TextUtils.isEmpty(config.tos_uri) ?
+//                        config.tos_uri : getString(R.string.terms_of_use_uri));
+//        makeViewClickable(activity, fragment.findViewById(R.id.privacyPolicy), R.string.privacy_policy,
+//                config != null && !TextUtils.isEmpty(config.privacy_uri) ?
+//                        config.privacy_uri : getString(R.string.privacy_policy_uri));
+//
 
-        fragment.findViewById(R.id.aboutTheApp).setOnClickListener(v ->
-                ((ChatsActivity) activity).showFragment(ChatsActivity.FRAGMENT_ACC_ABOUT, null));
-
-        fragment.findViewById(R.id.ossLicenses).setOnClickListener(v -> {
-            activity.startActivity(new Intent(activity, OssLicensesMenuActivity.class));
-            OssLicensesMenuActivity.setActivityTitle(getString(R.string.licenses));
-        });
+//
+//        fragment.findViewById(R.id.ossLicenses).setOnClickListener(v -> {
+//            activity.startActivity(new Intent(activity, OssLicensesMenuActivity.class));
+//            OssLicensesMenuActivity.setActivityTitle(getString(R.string.licenses));
+//        });
 
         return fragment;
     }

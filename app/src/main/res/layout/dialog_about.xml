@@ -76,28 +76,7 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top"
-                android:paddingEnd="8dp"
-                android:text="@string/app_server"
-                android:textAppearance="?android:attr/textAppearanceMedium"
-                tools:ignore="RtlSymmetry" />
-
-            <TextView
-                android:id="@+id/app_server"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:paddingEnd="8dp"
-                android:textAppearance="?android:attr/textAppearanceMedium"
-                tools:ignore="RtlSymmetry"
-                tools:text="https://api.tinode.co\n0.23 mysql:v0.23.0" />
-
-        </LinearLayout>
+            android:layout_gravity="center"/>
 
         <ImageView
             android:id="@+id/imageLogo"
@@ -112,16 +91,6 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:text="@string/copyright"
-            android:textAppearance="?android:attr/textAppearanceMedium" />
-
-        <TextView
-            android:id="@+id/appHomePage"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:autoLink="web"
-            android:text="@string/tinode_url"
-            android:padding="8dp"
             android:textAppearance="?android:attr/textAppearanceMedium" />
 
     </LinearLayout>

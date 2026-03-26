@@ -3,12 +3,12 @@
     <string name="asset_statements" translatable="false">[{ \"include\": \"https://web.tinode.co/.well-known/assetlinks.json\" }]</string>
     <string name="tinode_url" translatable="false">https://tinode.co</string>
     <string name="emulator_host_name" translatable="false">10.0.2.2:6060</string>
-    <string name="contact_us_uri" translatable="false">mailto:support@tinode.co</string>
+    <string name="contact_us_uri" translatable="false"></string>
     <string name="terms_of_use_uri" translatable="false">https://tinode.co/terms.html</string>
     <string name="privacy_policy_uri" translatable="false">https://tinode.co/privacy.html</string>
     <string name="app_name" translatable="false">DynaChat</string>
-    <string name="app_name_full" translatable="false">Dynamics Chat</string>
-    <string name="copyright" translatable="false">©2026 Dynamics</string>
+    <string name="app_name_full" translatable="false">DynaChat</string>
+    <string name="copyright" translatable="false">©2026 Динамика</string>
     <string name="tinode" translatable="false">DynaChat</string>
 
     <string name="app_version">Version</string>

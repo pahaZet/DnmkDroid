@@ -1265,33 +1265,33 @@ public class UiUtils {
         ((TextView) view.findViewById(R.id.app_version)).setText(TindroidApp.getAppVersion());
         ((TextView) view.findViewById(R.id.app_build)).setText(String.format(Locale.US, "%d",
                 TindroidApp.getAppBuild()));
-        String serverVersion = Cache.getTinode().getServerVersion();
-        String serverBuild = Cache.getTinode().getServerBuild();
-        if (TextUtils.isEmpty(serverVersion) && TextUtils.isEmpty(serverBuild)) {
-            ((TextView) view.findViewById(R.id.app_server)).setText(serverUrl);
-        } else {
-            ((TextView) view.findViewById(R.id.app_server)).setText(
-                    String.format(Locale.US, "%s\n%s %s", serverUrl, serverVersion, serverBuild));
-        }
-        if (branding != null) {
-            Bitmap logo = BrandingConfig.getLargeIcon(view.getContext());
-            if (logo != null) {
-                ((ImageView) view.findViewById(R.id.imageLogo)).setImageBitmap(logo);
-            }
-            if (!TextUtils.isEmpty(branding.service_name)) {
-                ((TextView) view.findViewById(R.id.appTitle)).setText(branding.service_name);
-            }
-            if (!TextUtils.isEmpty(branding.tos_uri)) {
-                String homePage = Uri.parse(branding.tos_uri).getAuthority();
-                if (!TextUtils.isEmpty(homePage)) {
-                    ((TextView) view.findViewById(R.id.appHomePage)).setText(homePage);
-                }
-            }
-
-            View byTinode = view.findViewById(R.id.byTinode);
-            byTinode.setVisibility(View.VISIBLE);
-            UiUtils.clickToBrowseTinodeURL(byTinode);
-        }
+//        String serverVersion = Cache.getTinode().getServerVersion();
+//        String serverBuild = Cache.getTinode().getServerBuild();
+//        if (TextUtils.isEmpty(serverVersion) && TextUtils.isEmpty(serverBuild)) {
+//            ((TextView) view.findViewById(R.id.app_server)).setText(serverUrl);
+//        } else {
+//            ((TextView) view.findViewById(R.id.app_server)).setText(
+//                    String.format(Locale.US, "%s\n%s %s", serverUrl, serverVersion, serverBuild));
+//        }
+//        if (branding != null) {
+//            Bitmap logo = BrandingConfig.getLargeIcon(view.getContext());
+//            if (logo != null) {
+//                ((ImageView) view.findViewById(R.id.imageLogo)).setImageBitmap(logo);
+//            }
+//            if (!TextUtils.isEmpty(branding.service_name)) {
+//                ((TextView) view.findViewById(R.id.appTitle)).setText(branding.service_name);
+//            }
+//            if (!TextUtils.isEmpty(branding.tos_uri)) {
+//                String homePage = Uri.parse(branding.tos_uri).getAuthority();
+//                if (!TextUtils.isEmpty(homePage)) {
+//                    ((TextView) view.findViewById(R.id.appHomePage)).setText(homePage);
+//                }
+//            }
+//
+//            View byTinode = view.findViewById(R.id.byTinode);
+//            byTinode.setVisibility(View.VISIBLE);
+//            UiUtils.clickToBrowseTinodeURL(byTinode);
+//        }
     }
     // Click on a view to open the given URL.
     static void clickToBrowseTinodeURL(View view, String url) {

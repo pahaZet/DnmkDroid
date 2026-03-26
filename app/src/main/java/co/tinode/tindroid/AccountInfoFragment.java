@@ -72,6 +72,9 @@ public class AccountInfoFragment extends Fragment implements ChatsActivity.FormU
         fragment.findViewById(R.id.help).setOnClickListener(v ->
                 ((ChatsActivity) activity).showFragment(ChatsActivity.FRAGMENT_ACC_HELP, null));
 
+        fragment.findViewById(R.id.aboutTheApp).setOnClickListener(v ->
+                ((ChatsActivity) activity).showFragment(ChatsActivity.FRAGMENT_ACC_ABOUT, null));
+
         return fragment;
     }
 

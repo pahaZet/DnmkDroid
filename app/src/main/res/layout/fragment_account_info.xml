@@ -344,6 +344,19 @@
             android:gravity="center_vertical"
             android:minHeight="?attr/listPreferredItemHeight">
 
+            <TextView
+                android:id="@+id/aboutTheApp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="2dp"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="10dp"
+                android:drawablePadding="10dp"
+                android:text="@string/about_the_app"
+                android:textAppearance="?android:textAppearanceLarge"
+                app:drawableStartCompat="@drawable/ic_icon_push"
+                app:drawableTint="@color/colorAccent" />
+
             <ImageView
                 android:id="@+id/icon_help"
                 android:layout_width="@dimen/settings_icon_size"
@@ -353,24 +366,6 @@
                 android:src="@drawable/ic_contact_support"
                 app:tint="@color/colorAccent"
                 tools:ignore="ContentDescription" />
-
-            <TextView
-                android:id="@+id/help_text"
-                style="?android:textAppearanceLarge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_toEndOf="@id/icon_help"
-                android:text="@string/help" />
-
-            <TextView
-                style="?android:textAppearanceMedium"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_below="@id/help_text"
-                android:layout_marginStart="16dp"
-                android:layout_toEndOf="@id/icon_help"
-                android:text="@string/help_explained" />
 
         </RelativeLayout>
     </LinearLayout>
