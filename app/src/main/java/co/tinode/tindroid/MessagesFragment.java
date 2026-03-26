@@ -2328,9 +2328,10 @@ public class MessagesFragment extends Fragment implements MenuProvider {
                             return;
                         }
                         if (forwardSwipe) {
-                            mMessagesAdapter.replyToMessage(position);
-                        } else {
                             mMessagesAdapter.forwardMessage(position);
+                        } else {
+                            mMessagesAdapter.replyToMessage(position);
+
                         }
                     })
                     .start();

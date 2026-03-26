@@ -685,6 +685,21 @@ public class UiUtils {
         }
     }
 
+    static int avatarTextColor(Context context, @Nullable VxCard pub, String address, boolean disabled) {
+        if (pub != null && (pub.getBitmap() != null || pub.getPhotoRef() != null)) {
+            return context.getResources().getColor(R.color.colorMessageBubbleUserNamePhoto, null);
+        }
+
+        LetterTileDrawable drawable = new LetterTileDrawable(context);
+        drawable.setContactTypeAndColor(
+                Topic.isP2PType(address) ? LetterTileDrawable.ContactType.PERSON :
+                        Topic.isSlfType(address) ? LetterTileDrawable.ContactType.SELF :
+                                LetterTileDrawable.ContactType.GROUP, disabled)
+                .setLetterAndColor(pub != null ? pub.fn : null, address, disabled)
+                .setIsCircular(true);
+        return drawable.getColor();
+    }
+
     // Create avatar bitmap: try to use ref first, then in-band bits, the letter tile, then placeholder.
     // Do NOT run on UI thread: it will throw.
     public static Bitmap avatarBitmap(Context context, VxCard pub, Topic.TopicType tp, String id, int size) {
@@ -767,6 +782,12 @@ public class UiUtils {
     }
 
     public static void setMessageStatusIcon(ImageView holder, int status, int read, int recv) {
+        setMessageStatusIcon(holder, status, read, recv, null);
+    }
+
+    public static void setMessageStatusIcon(ImageView holder, int status, int read, int recv,
+                                            @Nullable Integer deliveredColor) {
+        holder.clearColorFilter();
         if (status <= BaseDb.Status.SENDING.value) {
             holder.setImageResource(R.drawable.ic_schedule);
         } else if (status == BaseDb.Status.FAILED.value) {
@@ -776,6 +797,9 @@ public class UiUtils {
                 holder.setImageResource(R.drawable.ic_done_all2);
             } else if (recv > 0) {
                 holder.setImageResource(R.drawable.ic_done_all);
+                if (deliveredColor != null) {
+                    holder.setColorFilter(deliveredColor);
+                }
             } else {
                 holder.setImageResource(R.drawable.ic_done);
             }
