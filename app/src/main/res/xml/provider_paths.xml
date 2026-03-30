@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
+    <cache-path name="attachments_cache" path="attachments/" />
     <external-files-path name="camera_pics" path="Pictures" />
     <external-path name="downloads" path="Download" />
 </paths>

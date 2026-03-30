@@ -391,6 +391,119 @@ public class AttachmentHandler extends Worker {
         return downloadId;
     }
 
+    interface DownloadProgressListener {
+        void onProgress(long downloaded, long total);
+
+        void onComplete();
+
+        void onError();
+    }
+
+    static boolean isAttachmentCached(@NonNull Context context, @Nullable String ref, @Nullable String fname) {
+        if (TextUtils.isEmpty(ref)) {
+            return false;
+        }
+        File file = getCachedAttachmentFile(context, ref, fname);
+        return file.exists() && file.length() > 0;
+    }
+
+    static void openAttachment(AppCompatActivity activity, String ref, byte[] bits,
+                               String fname, String mimeType,
+                               @Nullable DownloadProgressListener progressListener) {
+        if (bits != null) {
+            try {
+                File file = createOpenableAttachmentFile(activity, fname);
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write(bits);
+                }
+                openAttachmentFile(activity, file, mimeType);
+            } catch (IOException ex) {
+                Log.w(TAG, "Failed to prepare in-band attachment for opening", ex);
+                Toast.makeText(activity, R.string.failed_to_save_download, Toast.LENGTH_SHORT).show();
+                if (progressListener != null) {
+                    progressListener.onError();
+                }
+            }
+            return;
+        }
+
+        if (ref == null) {
+            Log.w(TAG, "Invalid or missing attachment");
+            Toast.makeText(activity, R.string.failed_to_download, Toast.LENGTH_SHORT).show();
+            if (progressListener != null) {
+                progressListener.onError();
+            }
+            return;
+        }
+
+        final URL url;
+        try {
+            url = new URL(Cache.getTinode().getBaseUrl(), ref);
+        } catch (MalformedURLException ex) {
+            Log.w(TAG, "Server address is not yet configured", ex);
+            Toast.makeText(activity, R.string.failed_to_download, Toast.LENGTH_SHORT).show();
+            if (progressListener != null) {
+                progressListener.onError();
+            }
+            return;
+        }
+
+        String scheme = url.getProtocol();
+        if (!"http".equals(scheme) && !"https".equals(scheme)) {
+            Log.w(TAG, "Unsupported transport protocol '" + scheme + "'");
+            Toast.makeText(activity, R.string.failed_to_download, Toast.LENGTH_SHORT).show();
+            if (progressListener != null) {
+                progressListener.onError();
+            }
+            return;
+        }
+
+        final File file = getCachedAttachmentFile(activity, ref, fname);
+        if (file.exists() && file.length() > 0) {
+            openAttachmentFile(activity, file, mimeType);
+            if (progressListener != null) {
+                progressListener.onComplete();
+            }
+            return;
+        }
+
+        final String finalMimeType = mimeType;
+        new Thread(() -> {
+            try (FileOutputStream fos = new FileOutputStream(file)) {
+                final int[] lastPercent = {-1};
+                Cache.getTinode().getLargeFileHelper().download(url.toString(), fos, (downloaded, total) -> {
+                    if (progressListener == null) {
+                        return;
+                    }
+
+                    int percent = total > 0 ? (int) (downloaded * 100 / total) : -1;
+                    if (percent == lastPercent[0]) {
+                        return;
+                    }
+                    lastPercent[0] = percent;
+                    activity.runOnUiThread(() -> progressListener.onProgress(downloaded, total));
+                });
+                activity.runOnUiThread(() -> {
+                    openAttachmentFile(activity, file, finalMimeType);
+                    if (progressListener != null) {
+                        progressListener.onComplete();
+                    }
+                });
+            } catch (Exception ex) {
+                if (file.exists() && !file.delete()) {
+                    Log.w(TAG, "Failed to delete temporary attachment file " + file);
+                }
+                Log.w(TAG, "Failed to download attachment for opening", ex);
+                activity.runOnUiThread(() -> {
+                    Toast.makeText(activity, R.string.failed_to_download, Toast.LENGTH_SHORT).show();
+                    if (progressListener != null) {
+                        progressListener.onError();
+                    }
+                });
+            }
+        }).start();
+    }
+
     private static long remoteDownload(AppCompatActivity activity, final Uri uri, final String fname, final String mime,
                                        final Map<String, String> headers) {
 
@@ -424,6 +537,95 @@ public class AttachmentHandler extends Worker {
                         .setVisibleInDownloadsUi(true)
                         .setDestinationUri(Uri.fromFile(new File(Environment
                                 .getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fname))));
+    }
+
+    @NonNull
+    private static File getCachedAttachmentFile(@NonNull Context context, @NonNull String ref, @Nullable String fname) {
+        File dir = new File(context.getCacheDir(), "attachments");
+        if (!dir.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            dir.mkdirs();
+        }
+        String safeName = sanitizeAttachmentFileName(fname);
+        return new File(dir, Integer.toHexString(ref.hashCode()) + "_" + safeName);
+    }
+
+    @NonNull
+    private static File createOpenableAttachmentFile(@NonNull Context context, @Nullable String fname)
+            throws IOException {
+        File dir = new File(context.getCacheDir(), "attachments");
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IOException("Failed to create cache directory for attachments");
+        }
+
+        String safeName = sanitizeAttachmentFileName(fname);
+        int dot = safeName.lastIndexOf('.');
+        String prefix = dot > 0 ? safeName.substring(0, dot) : safeName;
+        String suffix = dot > 0 ? safeName.substring(dot) : "";
+        if (prefix.length() < 3) {
+            prefix = (prefix + "___").substring(0, 3);
+        }
+        return File.createTempFile(prefix + "_", suffix, dir);
+    }
+
+    @NonNull
+    private static String sanitizeAttachmentFileName(@Nullable String fname) {
+        String safeName = fname;
+        if (TextUtils.isEmpty(safeName)) {
+            safeName = "attachment";
+        }
+
+        int slash = Math.max(safeName.lastIndexOf('/'), safeName.lastIndexOf('\\'));
+        if (slash >= 0 && slash + 1 < safeName.length()) {
+            safeName = safeName.substring(slash + 1);
+        }
+
+        int query = safeName.indexOf('?');
+        if (query >= 0) {
+            safeName = safeName.substring(0, query);
+        }
+
+        safeName = safeName.trim().replaceAll("[\\\\/:*?\"<>|\\s]+", "_");
+        if (TextUtils.isEmpty(safeName)) {
+            safeName = "attachment";
+        }
+        if (safeName.length() > 80) {
+            int dot = safeName.lastIndexOf('.');
+            String suffix = dot > 0 ? safeName.substring(dot) : "";
+            int maxBaseLength = 80 - suffix.length();
+            if (maxBaseLength < 1) {
+                safeName = safeName.substring(0, 80);
+            } else {
+                safeName = safeName.substring(0, maxBaseLength) + suffix;
+            }
+        }
+        return safeName;
+    }
+
+    private static void openAttachmentFile(@NonNull AppCompatActivity activity, @NonNull File file,
+                                           @Nullable String mimeType) {
+        String resolvedMimeType = mimeType;
+        if (TextUtils.isEmpty(resolvedMimeType) || "application/octet-stream".equals(resolvedMimeType)) {
+            String detectedMimeType = UiUtils.getMimeType(Uri.fromFile(file));
+            if (!TextUtils.isEmpty(detectedMimeType)) {
+                resolvedMimeType = detectedMimeType;
+            }
+        }
+        if (TextUtils.isEmpty(resolvedMimeType)) {
+            resolvedMimeType = "*/*";
+        }
+
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(FileProvider.getUriForFile(activity, "co.tinode.tindroid.provider", file),
+                resolvedMimeType);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+        try {
+            activity.startActivity(intent);
+        } catch (ActivityNotFoundException ex) {
+            Log.w(TAG, "No application can handle attachment " + file, ex);
+            Toast.makeText(activity, R.string.failed_to_open_file, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private static @Nullable URI wrapRefUrl(@Nullable String refUrl) {

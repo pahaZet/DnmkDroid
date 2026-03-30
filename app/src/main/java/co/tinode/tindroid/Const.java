@@ -9,7 +9,13 @@ public class Const {
     public static final String PREF_TYPING_NOTIF = "pref_typingNotif";
     public static final String PREF_READ_RCPT = "pref_readReceipts";
     public static final String PREF_MESSAGE_UFADE = "ufade";
+    public static final String PREF_CHAT_LIST_TITLE_TEXT_SIZE = "chatListTitleTextSize";
+    public static final String PREF_CHAT_LIST_SUBTITLE_TEXT_SIZE = "chatListSubtitleTextSize";
     public static final int DEFAULT_MESSAGE_UFADE = 100;
+    public static final int DEFAULT_CHAT_LIST_TITLE_TEXT_SIZE = 16;
+    public static final int DEFAULT_CHAT_LIST_SUBTITLE_TEXT_SIZE = 12;
+    public static final int MIN_CHAT_LIST_TEXT_SIZE = 10;
+    public static final int MAX_CHAT_LIST_TEXT_SIZE = 30;
 
     public static final String INTENT_ACTION_CALL_CLOSE = "tindroidx.intent.action.call.CLOSE";
 

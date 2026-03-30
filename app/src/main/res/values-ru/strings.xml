@@ -369,4 +369,7 @@
     <string name="hint_search_chat_list">Поиск чатов и групп</string>
     <string name="typing_short">печатает...</string>
     <string name="typing_users">печатает %1$s</string>
+    <string name="chat_list_appearance">Список чатов</string>
+    <string name="chat_list_title_text_size">Размер имени, sp</string>
+    <string name="chat_list_subtitle_text_size">Размер подписи, sp</string>
 </resources>

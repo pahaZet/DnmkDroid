@@ -665,46 +665,17 @@ public class FullFormatter extends AbstractDraftyFormatter<SpannableStringBuilde
                     new ForegroundColorSpan(Color.GRAY), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
 
-        if (mClicker == null) {
-            return result;
-        }
-
-        // Add download link.
-
-        // Do we have attachment bits out-of-band or in-band?
-        boolean valid = (data.get("ref") instanceof String) || (data.get("val") != null);
-
-        // Insert linebreak then a clickable [↓ save] or [(!) unavailable] line.
-        result.append("\n");
-        SpannableStringBuilder saveLink = new SpannableStringBuilder();
-        // Add 'download file' icon
-        icon = AppCompatResources.getDrawable(ctx, valid ?
-                R.drawable.ic_download_link : R.drawable.ic_error_gray);
-        DisplayMetrics metrics = ctx.getResources().getDisplayMetrics();
-        //noinspection ConstantConditions
-        icon.setBounds(0, 0,
-                (int) (ICON_SIZE_DP * metrics.density),
-                (int) (ICON_SIZE_DP * metrics.density));
-        saveLink.append(" ", new ImageSpan(icon, ImageSpan.ALIGN_BOTTOM), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        if (valid) {
-            // Clickable "save".
-            saveLink.append(ctx.getResources().getString(R.string.download_attachment),
-                    new ClickableSpan() {
+        if (mClicker != null && ((data.get("ref") instanceof String) || (data.get("val") != null))) {
+            // Make the whole attachment block tappable.
+            result.setSpan(new ClickableSpan() {
                 @Override
                 public void onClick(@NonNull View widget) {
                     mClicker.onClick("EX", data, null);
                 }
-            }, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        } else {
-            // Grayed-out "unavailable".
-            saveLink.append(" " + ctx.getResources().getString(R.string.unavailable),
-                    new ForegroundColorSpan(Color.GRAY), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                @Override
+                public void updateDrawState(@NonNull TextPaint ds) {}
+            }, 0, result.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         }
-
-        // Add space on the left to make the link appear under the file name.
-        result.append(saveLink, new LeadingMarginSpan.Standard(bounds.width()), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        // Append thin space after the link, otherwise the whole line to the right is clickable.
-        result.append('\u2009');
         return result;
     }
 

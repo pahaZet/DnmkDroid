@@ -89,12 +89,72 @@
 
     <TextView
         style="@style/sectionTitleStyle"
-        android:id="@+id/section_title_keyboard"
+        android:id="@+id/section_title_chat_list"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:layout_marginBottom="8dp"
         android:layout_below="@id/buttonWallpapers"
+        android:text="@string/chat_list_appearance" />
+
+    <TextView
+        android:id="@+id/chat_title_text_size_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/section_title_chat_list"
+        android:layout_alignParentStart="true"
+        android:layout_toStartOf="@id/chat_title_text_size_input"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/min_touch_height"
+        android:text="@string/chat_list_title_text_size"
+        android:textAppearance="?android:textAppearanceMedium" />
+
+    <EditText
+        android:id="@+id/chat_title_text_size_input"
+        android:layout_width="88dp"
+        android:layout_height="wrap_content"
+        android:layout_alignBaseline="@id/chat_title_text_size_label"
+        android:layout_alignBottom="@id/chat_title_text_size_label"
+        android:layout_alignParentEnd="true"
+        android:ems="4"
+        android:gravity="end"
+        android:imeOptions="actionNext"
+        android:inputType="number"
+        android:minHeight="@dimen/min_touch_height" />
+
+    <TextView
+        android:id="@+id/chat_subtitle_text_size_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/chat_title_text_size_label"
+        android:layout_alignParentStart="true"
+        android:layout_toStartOf="@id/chat_subtitle_text_size_input"
+        android:gravity="center_vertical"
+        android:minHeight="@dimen/min_touch_height"
+        android:text="@string/chat_list_subtitle_text_size"
+        android:textAppearance="?android:textAppearanceMedium" />
+
+    <EditText
+        android:id="@+id/chat_subtitle_text_size_input"
+        android:layout_width="88dp"
+        android:layout_height="wrap_content"
+        android:layout_alignBaseline="@id/chat_subtitle_text_size_label"
+        android:layout_alignBottom="@id/chat_subtitle_text_size_label"
+        android:layout_alignParentEnd="true"
+        android:ems="4"
+        android:gravity="end"
+        android:imeOptions="actionNext"
+        android:inputType="number"
+        android:minHeight="@dimen/min_touch_height" />
+
+    <TextView
+        style="@style/sectionTitleStyle"
+        android:id="@+id/section_title_keyboard"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="8dp"
+        android:layout_below="@id/chat_subtitle_text_size_label"
         android:text="@string/keyboard" />
 
     <TextView

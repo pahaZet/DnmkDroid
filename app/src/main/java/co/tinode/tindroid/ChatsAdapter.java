@@ -2,6 +2,7 @@ package co.tinode.tindroid;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.res.TypedArray;
 import android.graphics.Typeface;
 import android.text.SpannableStringBuilder;
@@ -9,6 +10,7 @@ import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.RelativeSizeSpan;
+import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
@@ -28,6 +30,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.widget.AppCompatImageView;
 import androidx.core.content.res.ResourcesCompat;
+import androidx.preference.PreferenceManager;
 import androidx.recyclerview.selection.ItemDetailsLookup;
 import androidx.recyclerview.selection.ItemKeyProvider;
 import androidx.recyclerview.selection.SelectionTracker;
@@ -58,6 +61,8 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
     private final Filter mTopicFilter;
     // Optional filter to find topics by name.
     private Filter mTextFilter = null;
+    private int mTitleTextSizeSp = Const.DEFAULT_CHAT_LIST_TITLE_TEXT_SIZE;
+    private int mSubtitleTextSizeSp = Const.DEFAULT_CHAT_LIST_SUBTITLE_TEXT_SIZE;
 
     ChatsAdapter(Context context, ClickListener clickListener, @Nullable Filter filter) {
         this(context, clickListener, filter, R.string.no_chats);
@@ -85,6 +90,8 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
         if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
             return;
         }
+
+        refreshTextPreferences(activity);
 
         final Collection<ComTopic<VxCard>> newTopics = Cache.getTinode().getFilteredTopics(t ->
                 t.getTopicType().match(ComTopic.TopicType.USER) &&
@@ -126,7 +133,7 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
                 return;
             }
             Storage.Message msg = Cache.getTinode().getLastMessage(topic.getName());
-            holder.bind(position, topic, msg, mSelectionTracker != null &&
+            holder.bind(position, topic, msg, mTitleTextSizeSp, mSubtitleTextSizeSp, mSelectionTracker != null &&
                     mSelectionTracker.isSelected(topic.getName()));
         } else if (holder.itemView instanceof TextView) {
             ((TextView) holder.itemView).setText(mEmptyTextResId);
@@ -241,6 +248,37 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
         builder.setSpan(new ForegroundColorSpan(sColorNew), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         builder.setSpan(new RelativeSizeSpan(0.72f), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return builder;
+    }
+
+    private void refreshTextPreferences(@NonNull Context context) {
+        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+        mTitleTextSizeSp = readBoundedPreference(preferences,
+                Const.PREF_CHAT_LIST_TITLE_TEXT_SIZE,
+                Const.DEFAULT_CHAT_LIST_TITLE_TEXT_SIZE);
+        mSubtitleTextSizeSp = readBoundedPreference(preferences,
+                Const.PREF_CHAT_LIST_SUBTITLE_TEXT_SIZE,
+                Const.DEFAULT_CHAT_LIST_SUBTITLE_TEXT_SIZE);
+    }
+
+    private static int readBoundedPreference(@NonNull SharedPreferences preferences,
+                                             @NonNull String key, int defaultValue) {
+        try {
+            return clamp(preferences.getInt(key, defaultValue));
+        } catch (ClassCastException ignored) {
+            String value = preferences.getString(key, null);
+            if (!TextUtils.isEmpty(value)) {
+                try {
+                    return clamp(Integer.parseInt(value));
+                } catch (NumberFormatException ignored2) {
+                    // Ignore malformed value and fall back to default.
+                }
+            }
+        }
+        return clamp(defaultValue);
+    }
+
+    private static int clamp(int value) {
+        return Math.max(Const.MIN_CHAT_LIST_TEXT_SIZE, Math.min(Const.MAX_CHAT_LIST_TEXT_SIZE, value));
     }
 
     private static class TopicLastMessageComparator implements Comparator<ComTopic<VxCard>> {
@@ -413,12 +451,16 @@ public class ChatsAdapter extends RecyclerView.Adapter<ChatsAdapter.ViewHolder> 
             return details;
         }
 
-        void bind(int position, final ComTopic<VxCard> topic, Storage.Message msg, boolean selected) {
+        void bind(int position, final ComTopic<VxCard> topic, Storage.Message msg,
+                  int titleTextSizeSp, int subtitleTextSizeSp, boolean selected) {
             final Context context = itemView.getContext();
             final String topicName = topic.getName();
 
             details.pos = position;
             details.id = topicName;
+
+            name.setTextSize(TypedValue.COMPLEX_UNIT_SP, titleTextSizeSp);
+            priv.setTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleTextSizeSp);
 
             VxCard pub = topic.getPub();
             String addressBookName = getAddressBookName(topic);

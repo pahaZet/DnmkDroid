@@ -58,54 +58,77 @@ public class AccGeneralFragment extends Fragment {
         sendOnEnter.setOnCheckedChangeListener((buttonView, isChecked) ->
                 preferences.edit().putBoolean(Utils.PREFS_SEND_ON_ENTER, isChecked).apply());
 
-        EditText ufadeInput = view.findViewById(R.id.ufade_input);
-        ufadeInput.setText(String.valueOf(readUfadePreference()));
-        ufadeInput.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                persistUfadeValue((EditText) v);
-            }
-        });
-        ufadeInput.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT) {
-                persistUfadeValue((EditText) v);
-            }
-            return false;
-        });
+        bindIntegerPreference(view.findViewById(R.id.chat_title_text_size_input),
+                Const.PREF_CHAT_LIST_TITLE_TEXT_SIZE,
+                Const.DEFAULT_CHAT_LIST_TITLE_TEXT_SIZE,
+                Const.MIN_CHAT_LIST_TEXT_SIZE,
+                Const.MAX_CHAT_LIST_TEXT_SIZE);
+        bindIntegerPreference(view.findViewById(R.id.chat_subtitle_text_size_input),
+                Const.PREF_CHAT_LIST_SUBTITLE_TEXT_SIZE,
+                Const.DEFAULT_CHAT_LIST_SUBTITLE_TEXT_SIZE,
+                Const.MIN_CHAT_LIST_TEXT_SIZE,
+                Const.MAX_CHAT_LIST_TEXT_SIZE);
+        bindIntegerPreference(view.findViewById(R.id.ufade_input),
+                Const.PREF_MESSAGE_UFADE,
+                Const.DEFAULT_MESSAGE_UFADE,
+                0,
+                Integer.MAX_VALUE);
         return view;
     }
 
-    private int readUfadePreference() {
+    private void bindIntegerPreference(@NonNull EditText input, @NonNull String key, int defaultValue,
+                                       int minValue, int maxValue) {
+        input.setText(String.valueOf(readIntegerPreference(key, defaultValue, minValue, maxValue)));
+        input.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) {
+                persistIntegerPreference((EditText) v, key, defaultValue, minValue, maxValue);
+            }
+        });
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT) {
+                persistIntegerPreference((EditText) v, key, defaultValue, minValue, maxValue);
+            }
+            return false;
+        });
+    }
+
+    private int readIntegerPreference(@NonNull String key, int defaultValue, int minValue, int maxValue) {
         try {
-            return Math.max(0, preferences.getInt(Const.PREF_MESSAGE_UFADE, Const.DEFAULT_MESSAGE_UFADE));
+            return clamp(preferences.getInt(key, defaultValue), minValue, maxValue);
         } catch (ClassCastException ignored) {
-            String value = preferences.getString(Const.PREF_MESSAGE_UFADE, null);
+            String value = preferences.getString(key, null);
             if (!TextUtils.isEmpty(value)) {
                 try {
-                    return Math.max(0, Integer.parseInt(value));
+                    return clamp(Integer.parseInt(value), minValue, maxValue);
                 } catch (NumberFormatException ignored2) {
                     // Ignore malformed value and use default.
                 }
             }
         }
-        return Const.DEFAULT_MESSAGE_UFADE;
+        return clamp(defaultValue, minValue, maxValue);
     }
 
-    private void persistUfadeValue(@NonNull EditText input) {
+    private void persistIntegerPreference(@NonNull EditText input, @NonNull String key, int defaultValue,
+                                          int minValue, int maxValue) {
         String raw = input.getText() != null ? input.getText().toString().trim() : "";
-        int value = Const.DEFAULT_MESSAGE_UFADE;
+        int value = defaultValue;
         if (!TextUtils.isEmpty(raw)) {
             try {
-                value = Math.max(0, Integer.parseInt(raw));
+                value = clamp(Integer.parseInt(raw), minValue, maxValue);
             } catch (NumberFormatException ignored) {
                 // Revert invalid content to the last valid/default value below.
             }
         }
-        preferences.edit().putInt(Const.PREF_MESSAGE_UFADE, value).apply();
+        preferences.edit().putInt(key, value).apply();
         String normalized = Integer.toString(value);
         if (!normalized.equals(raw)) {
             input.setText(normalized);
             input.setSelection(normalized.length());
         }
+    }
+
+    private static int clamp(int value, int minValue, int maxValue) {
+        return Math.max(minValue, Math.min(maxValue, value));
     }
 
     private void handleThemeSelection(String selectedKey) {

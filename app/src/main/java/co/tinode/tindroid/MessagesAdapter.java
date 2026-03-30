@@ -151,6 +151,14 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
     private final int mMessageFadeDuration;
 
     private final MediaControl mMediaControl;
+    private final Map<Long, AttachmentDownloadState> mAttachmentDownloads = new HashMap<>();
+
+    private static final class AttachmentDownloadState {
+        boolean inProgress;
+        boolean failed;
+        long total = -1L;
+        float progress;
+    }
 
     MessagesAdapter(@NonNull MessageActivity context, @NonNull SwipeRefreshLayout refresher) {
         super();
@@ -267,6 +275,82 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         span.setSpan(new IconMarginSpan(UtilsBitmap.bitmapFromDrawable(icon), 24),
                 0, span.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return span;
+    }
+
+    private boolean isAttachmentDownloading(long msgId) {
+        AttachmentDownloadState state = mAttachmentDownloads.get(msgId);
+        return state != null && state.inProgress;
+    }
+
+    private void startAttachmentDownload(long msgId) {
+        AttachmentDownloadState state = mAttachmentDownloads.get(msgId);
+        if (state == null) {
+            state = new AttachmentDownloadState();
+            mAttachmentDownloads.put(msgId, state);
+        }
+        state.inProgress = true;
+        state.failed = false;
+        state.total = -1L;
+        state.progress = 0f;
+        notifyAttachmentDownloadChanged(msgId);
+    }
+
+    private void updateAttachmentDownload(long msgId, long downloaded, long total) {
+        AttachmentDownloadState state = mAttachmentDownloads.get(msgId);
+        if (state == null) {
+            state = new AttachmentDownloadState();
+            mAttachmentDownloads.put(msgId, state);
+        }
+
+        boolean shouldNotify = !state.inProgress || state.failed || state.total != total;
+        state.inProgress = true;
+        state.failed = false;
+        state.total = total;
+
+        if (total > 0) {
+            float progress = Math.max(0f, Math.min(1f, (float) downloaded / total));
+            if ((int) (state.progress * 100) != (int) (progress * 100)) {
+                shouldNotify = true;
+            }
+            state.progress = progress;
+        } else {
+            state.progress = 0f;
+            shouldNotify = true;
+        }
+
+        if (shouldNotify) {
+            notifyAttachmentDownloadChanged(msgId);
+        }
+    }
+
+    private void failAttachmentDownload(long msgId) {
+        AttachmentDownloadState state = mAttachmentDownloads.get(msgId);
+        if (state == null) {
+            state = new AttachmentDownloadState();
+            mAttachmentDownloads.put(msgId, state);
+        }
+        state.inProgress = false;
+        state.failed = true;
+        state.total = -1L;
+        state.progress = 0f;
+        notifyAttachmentDownloadChanged(msgId);
+    }
+
+    private void finishAttachmentDownload(long msgId) {
+        if (mAttachmentDownloads.remove(msgId) != null) {
+            notifyAttachmentDownloadChanged(msgId);
+        }
+    }
+
+    private void notifyAttachmentDownloadChanged(long msgId) {
+        int count = getItemCount();
+        if (count <= 0) {
+            return;
+        }
+        int position = findItemPositionById(msgId, 0, count - 1);
+        if (position >= 0) {
+            notifyItemChanged(position);
+        }
     }
 
     private static int findInCursor(@Nullable Cursor cur, int seq) {
@@ -724,14 +808,19 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
         final long msgId = m.getDbId();
 
         boolean isEdited = m.isReplacement() && m.getHeader("webrtc") == null;
-        boolean hasAttachment = m.content != null && m.content.getEntReferences() != null;
+        boolean hasAttachment = m.content != null &&
+                (m.content.getEntReferences() != null || m.content.hasEntities(Arrays.asList("EX")));
         boolean uploadingAttachment = hasAttachment && m.isPending();
         boolean uploadFailed = hasAttachment && (m.status == BaseDb.Status.FAILED);
+        AttachmentDownloadState downloadState = mAttachmentDownloads.get(msgId);
+        boolean downloadingAttachment = downloadState != null && downloadState.inProgress;
+        boolean downloadFailed = downloadState != null && downloadState.failed;
 
         // Normal message.
         if (m.content != null) {
             // Disable clicker while message is processed.
-            FullFormatter formatter = new FullFormatter(holder.mText, uploadingAttachment ? null : new SpanClicker(m.seq));
+            FullFormatter formatter = new FullFormatter(holder.mText,
+                    uploadingAttachment ? null : new SpanClicker(m.seq, msgId));
             formatter.setQuoteFormatter(new QuoteFormatter(holder.mText, holder.mText.getTextSize()));
             Spanned text = m.content.format(formatter);
             if (TextUtils.isEmpty(text)) {
@@ -776,13 +865,15 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
             holder.mText.setAutoLinkMask(0);
         }
 
-        if (hasAttachment && holder.mProgressContainer != null) {
+        if ((hasAttachment || downloadState != null) && holder.mProgressContainer != null) {
             if (uploadingAttachment) {
                 // Hide the word 'canceled'.
                 holder.mProgressResult.setVisibility(View.GONE);
                 // Show progress bar.
                 holder.mProgress.setVisibility(View.VISIBLE);
                 holder.mProgressContainer.setVisibility(View.VISIBLE);
+                holder.mProgressBar.setIndeterminate(false);
+                holder.mCancelProgress.setVisibility(View.VISIBLE);
                 holder.mCancelProgress.setOnClickListener(v -> {
                     cancelUpload(msgId);
                     holder.mProgress.setVisibility(View.GONE);
@@ -790,17 +881,33 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                     holder.mProgressResult.setText(R.string.canceled);
                     holder.mProgressResult.setVisibility(View.VISIBLE);
                 });
-            } else if (uploadFailed) {
+            } else if (downloadingAttachment) {
+                holder.mProgressResult.setVisibility(View.GONE);
+                holder.mProgress.setVisibility(View.VISIBLE);
+                holder.mProgressContainer.setVisibility(View.VISIBLE);
+                holder.mCancelProgress.setVisibility(View.GONE);
+                holder.mCancelProgress.setOnClickListener(null);
+                holder.mProgressBar.setIndeterminate(downloadState.total <= 0);
+                if (downloadState.total > 0) {
+                    holder.mProgressBar.setProgress((int) (downloadState.progress * 100));
+                }
+            } else if (uploadFailed || downloadFailed) {
                 // Show 'failed'.
                 holder.mProgressResult.setText(R.string.failed);
                 holder.mProgressResult.setVisibility(View.VISIBLE);
                 // Hide progress bar.
                 holder.mProgress.setVisibility(View.GONE);
                 holder.mProgressContainer.setVisibility(View.VISIBLE);
+                holder.mProgressBar.setIndeterminate(false);
+                holder.mCancelProgress.setVisibility(View.GONE);
                 holder.mCancelProgress.setOnClickListener(null);
             } else {
                 // Hide the entire progress bar component.
                 holder.mProgressContainer.setVisibility(View.GONE);
+                holder.mProgressResult.setVisibility(View.GONE);
+                holder.mProgress.setVisibility(View.VISIBLE);
+                holder.mProgressBar.setIndeterminate(false);
+                holder.mCancelProgress.setVisibility(View.GONE);
                 holder.mCancelProgress.setOnClickListener(null);
             }
         }
@@ -1452,9 +1559,11 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
 
     class SpanClicker implements FullFormatter.ClickListener {
         private final int mSeqId;
+        private final long mMsgId;
 
-        SpanClicker(int seq) {
+        SpanClicker(int seq, long msgId) {
             mSeqId = seq;
+            mMsgId = msgId;
         }
 
         @Override
@@ -1512,9 +1621,37 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                 fname += Long.toString(System.currentTimeMillis() % 10000);
             }
 
-            AttachmentHandler.enqueueDownloadAttachment(mActivity,
-                    UiUtils.getStringVal("ref", data, null),
-                    UiUtils.getByteArray("val", data), fname, mimeType);
+            String ref = UiUtils.getStringVal("ref", data, null);
+            byte[] bits = UiUtils.getByteArray("val", data);
+
+            if (ref != null && isAttachmentDownloading(mMsgId)) {
+                return true;
+            }
+
+            boolean trackDownload = ref != null && !AttachmentHandler.isAttachmentCached(mActivity, ref, fname);
+            if (trackDownload) {
+                startAttachmentDownload(mMsgId);
+            } else {
+                finishAttachmentDownload(mMsgId);
+            }
+
+            AttachmentHandler.openAttachment(mActivity, ref, bits, fname, mimeType,
+                    trackDownload ? new AttachmentHandler.DownloadProgressListener() {
+                        @Override
+                        public void onProgress(long downloaded, long total) {
+                            updateAttachmentDownload(mMsgId, downloaded, total);
+                        }
+
+                        @Override
+                        public void onComplete() {
+                            finishAttachmentDownload(mMsgId);
+                        }
+
+                        @Override
+                        public void onError() {
+                            failAttachmentDownload(mMsgId);
+                        }
+                    } : null);
 
             return true;
         }
