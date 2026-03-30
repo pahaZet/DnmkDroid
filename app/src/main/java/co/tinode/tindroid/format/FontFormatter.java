@@ -7,7 +7,9 @@ import java.util.List;
 import java.util.Map;
 
 import androidx.annotation.StringRes;
+import co.tinode.tindroid.ContactFileHelper;
 import co.tinode.tindroid.R;
+import co.tinode.tindroid.UiUtils;
 
 // Drafty formatter for creating message previews in push notifications.
 // Push notifications don't support ImageSpan or TypefaceSpan, consequently, using Unicode chars instead of icons.
@@ -56,6 +58,13 @@ public class FontFormatter extends PreviewFormatter {
         if (isSkippableJson(data.get("mime"))) {
             // Skip JSON attachments. They are not meant to be user-visible.
             return null;
+        }
+        String mimeType = getStringVal("mime", data, null);
+        String fname = getStringVal("name", data, null);
+        if (ContactFileHelper.isContactFile(mimeType, fname)) {
+            return annotatedIcon(ctx, ATTACHMENT,
+                    ctx.getString(R.string.contact_file)  +
+                            ContactFileHelper.getContactDisplayName(ctx, fname, UiUtils.decodeByteArray(data.get("val"))));
         }
         return annotatedIcon(ctx, ATTACHMENT, R.string.attachment);
     }

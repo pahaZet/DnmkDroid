@@ -21,8 +21,10 @@ import java.util.Map;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
+import co.tinode.tindroid.ContactFileHelper;
 import androidx.appcompat.content.res.AppCompatResources;
 import co.tinode.tindroid.R;
+import co.tinode.tindroid.UiUtils;
 
 // Drafty formatter for creating one-line message previews.
 public class PreviewFormatter extends AbstractDraftyFormatter<SpannableStringBuilder> {
@@ -141,6 +143,14 @@ public class PreviewFormatter extends AbstractDraftyFormatter<SpannableStringBui
         if (isSkippableJson(data.get("mime"))) {
             // Skip JSON attachments. They are not meant to be user-visible.
             return null;
+        }
+
+        String mimeType = getStringVal("mime", data, null);
+        String fname = getStringVal("name", data, null);
+        if (ContactFileHelper.isContactFile(mimeType, fname)) {
+            return annotatedIcon(ctx, R.drawable.ic_person_add,
+                    ctx.getString(R.string.contact_file) +
+                            ContactFileHelper.getContactDisplayName(ctx, fname, UiUtils.decodeByteArray(data.get("val"))));
         }
 
         return annotatedIcon(ctx, R.drawable.ic_attach_ol, R.string.attachment);

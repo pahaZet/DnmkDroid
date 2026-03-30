@@ -46,6 +46,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
@@ -1623,6 +1624,58 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
 
             String ref = UiUtils.getStringVal("ref", data, null);
             byte[] bits = UiUtils.getByteArray("val", data);
+
+            if (ContactFileHelper.isContactFile(mimeType, fname)) {
+                if (bits != null) {
+                    ContactFileHelper.promptAddContact(mActivity, fname, bits);
+                    return true;
+                }
+
+                if (ref == null) {
+                    Toast.makeText(mActivity, R.string.contact_file_invalid, Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+
+                if (isAttachmentDownloading(mMsgId)) {
+                    return true;
+                }
+
+                boolean trackDownload = !AttachmentHandler.isAttachmentCached(mActivity, ref, fname);
+                if (trackDownload) {
+                    startAttachmentDownload(mMsgId);
+                } else {
+                    finishAttachmentDownload(mMsgId);
+                }
+
+                AttachmentHandler.fetchAttachmentFile(mActivity, ref, null, fname,
+                        trackDownload ? new AttachmentHandler.DownloadProgressListener() {
+                            @Override
+                            public void onProgress(long downloaded, long total) {
+                                updateAttachmentDownload(mMsgId, downloaded, total);
+                            }
+
+                            @Override
+                            public void onComplete() {
+                                finishAttachmentDownload(mMsgId);
+                            }
+
+                            @Override
+                            public void onError() {
+                                failAttachmentDownload(mMsgId);
+                            }
+                        } : null, new AttachmentHandler.AttachmentFileListener() {
+                            @Override
+                            public void onReady(@NonNull File file) {
+                                ContactFileHelper.promptAddContact(mActivity, file);
+                            }
+
+                            @Override
+                            public void onError() {
+                                Toast.makeText(mActivity, R.string.failed_to_download, Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                return true;
+            }
 
             if (ref != null && isAttachmentDownloading(mMsgId)) {
                 return true;

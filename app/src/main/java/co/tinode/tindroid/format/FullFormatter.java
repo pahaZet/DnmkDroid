@@ -47,6 +47,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.content.res.AppCompatResources;
 import co.tinode.tindroid.Cache;
+import co.tinode.tindroid.ContactFileHelper;
 import co.tinode.tindroid.R;
 import co.tinode.tindroid.UiUtils;
 import co.tinode.tindroid.UtilsString;
@@ -632,18 +633,26 @@ public class FullFormatter extends AbstractDraftyFormatter<SpannableStringBuilde
             return null;
         }
 
+        String mimeType = getStringVal("mime", data, null);
+        String fname = getStringVal("name", data, null);
+        byte[] bits = UiUtils.decodeByteArray(data.get("val"));
+        boolean contactFile = ContactFileHelper.isContactFile(mimeType, fname);
+
         SpannableStringBuilder result = new SpannableStringBuilder();
         // Insert document icon
-        Drawable icon = AppCompatResources.getDrawable(ctx, R.drawable.ic_file);
+        Drawable icon = AppCompatResources.getDrawable(ctx, contactFile ? R.drawable.ic_person_add : R.drawable.ic_file);
         //noinspection ConstantConditions
         icon.setBounds(0, 0, icon.getIntrinsicWidth(), icon.getIntrinsicHeight());
         ImageSpan span = new ImageSpan(icon, ImageSpan.ALIGN_BOTTOM);
-        final Rect bounds = span.getDrawable().getBounds();
         result.append(" ", span, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         result.setSpan(new SubscriptSpan(), 0, result.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
-        // Insert document's file name
-        String fname = getStringVal("name", data, null);
+        if (contactFile) {
+            result.append(ctx.getString(R.string.contact_file))
+                    .append(": ")
+                    .append(ContactFileHelper.getContactDisplayName(ctx, fname, bits));
+        } else {
+            // Insert document's file name
         if (TextUtils.isEmpty(fname)) {
             fname = ctx.getResources().getString(R.string.default_attachment_name);
         } else if (fname.length() > MAX_FILE_LENGTH) {
@@ -651,11 +660,11 @@ public class FullFormatter extends AbstractDraftyFormatter<SpannableStringBuilde
                     fname.substring(fname.length() - MAX_FILE_LENGTH/2);
         }
 
-        result.append(fname, new TypefaceSpan("monospace"), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            result.append(fname, new TypefaceSpan("monospace"), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
 
         int byteCount = getIntVal("size", data);
         if (byteCount <= 0) {
-            byte[] bits = UiUtils.decodeByteArray(data.get("val"));
             if (bits != null) {
                 byteCount = bits.length;
             }

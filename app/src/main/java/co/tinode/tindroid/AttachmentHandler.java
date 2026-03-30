@@ -399,12 +399,114 @@ public class AttachmentHandler extends Worker {
         void onError();
     }
 
+    interface AttachmentFileListener {
+        void onReady(@NonNull File file);
+
+        void onError();
+    }
+
     static boolean isAttachmentCached(@NonNull Context context, @Nullable String ref, @Nullable String fname) {
         if (TextUtils.isEmpty(ref)) {
             return false;
         }
         File file = getCachedAttachmentFile(context, ref, fname);
         return file.exists() && file.length() > 0;
+    }
+
+    static void fetchAttachmentFile(@NonNull AppCompatActivity activity, @Nullable String ref, @Nullable byte[] bits,
+                                    @Nullable String fname, @Nullable DownloadProgressListener progressListener,
+                                    @NonNull AttachmentFileListener fileListener) {
+        if (bits != null) {
+            try {
+                File file = createOpenableAttachmentFile(activity, fname);
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write(bits);
+                }
+                fileListener.onReady(file);
+            } catch (IOException ex) {
+                Log.w(TAG, "Failed to prepare attachment file", ex);
+                if (progressListener != null) {
+                    progressListener.onError();
+                }
+                fileListener.onError();
+            }
+            return;
+        }
+
+        if (ref == null) {
+            Log.w(TAG, "Invalid or missing attachment");
+            if (progressListener != null) {
+                progressListener.onError();
+            }
+            fileListener.onError();
+            return;
+        }
+
+        final URL url;
+        try {
+            url = new URL(Cache.getTinode().getBaseUrl(), ref);
+        } catch (MalformedURLException ex) {
+            Log.w(TAG, "Server address is not yet configured", ex);
+            if (progressListener != null) {
+                progressListener.onError();
+            }
+            fileListener.onError();
+            return;
+        }
+
+        String scheme = url.getProtocol();
+        if (!"http".equals(scheme) && !"https".equals(scheme)) {
+            Log.w(TAG, "Unsupported transport protocol '" + scheme + "'");
+            if (progressListener != null) {
+                progressListener.onError();
+            }
+            fileListener.onError();
+            return;
+        }
+
+        final File file = getCachedAttachmentFile(activity, ref, fname);
+        if (file.exists() && file.length() > 0) {
+            if (progressListener != null) {
+                progressListener.onComplete();
+            }
+            fileListener.onReady(file);
+            return;
+        }
+
+        new Thread(() -> {
+            try (FileOutputStream fos = new FileOutputStream(file)) {
+                final int[] lastPercent = {-1};
+                Cache.getTinode().getLargeFileHelper().download(url.toString(), fos, (downloaded, total) -> {
+                    if (progressListener == null) {
+                        return;
+                    }
+
+                    int percent = total > 0 ? (int) (downloaded * 100 / total) : -1;
+                    if (percent == lastPercent[0]) {
+                        return;
+                    }
+                    lastPercent[0] = percent;
+                    activity.runOnUiThread(() -> progressListener.onProgress(downloaded, total));
+                });
+                activity.runOnUiThread(() -> {
+                    if (progressListener != null) {
+                        progressListener.onComplete();
+                    }
+                    fileListener.onReady(file);
+                });
+            } catch (Exception ex) {
+                if (file.exists() && !file.delete()) {
+                    Log.w(TAG, "Failed to delete temporary attachment file " + file);
+                }
+                Log.w(TAG, "Failed to download attachment file", ex);
+                activity.runOnUiThread(() -> {
+                    if (progressListener != null) {
+                        progressListener.onError();
+                    }
+                    fileListener.onError();
+                });
+            }
+        }).start();
     }
 
     static void openAttachment(AppCompatActivity activity, String ref, byte[] bits,
