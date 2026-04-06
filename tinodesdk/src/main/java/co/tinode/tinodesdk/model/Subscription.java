@@ -20,6 +20,8 @@ public class Subscription<SP,SR> implements LocalData, Serializable {
     public Acs acs;
     public int read;
     public int recv;
+    public Date readAt;
+    public Date recvAt;
     @JsonProperty("private")
     public SR priv;
     public Boolean online;
@@ -112,10 +114,18 @@ public class Subscription<SP,SR> implements LocalData, Serializable {
 
         if (sub.read > read) {
             read = sub.read;
+            readAt = sub.readAt;
+            changed = true;
+        } else if (sub.read == read && sub.readAt != null && (readAt == null || readAt.before(sub.readAt))) {
+            readAt = sub.readAt;
             changed = true;
         }
         if (sub.recv > recv) {
             recv = sub.recv;
+            recvAt = sub.recvAt;
+            changed = true;
+        } else if (sub.recv == recv && sub.recvAt != null && (recvAt == null || recvAt.before(sub.recvAt))) {
+            recvAt = sub.recvAt;
             changed = true;
         }
         if (sub.clear > clear) {

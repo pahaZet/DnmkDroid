@@ -632,13 +632,14 @@ public class MeTopic<DP> extends Topic<DP,PrivateType,DP,PrivateType> {
             case Tinode.NOTE_RECV:
             case Tinode.NOTE_READ:
                 Topic topic = mTinode.getTopic(info.src);
+                int seq = info.seq != null ? info.seq : 0;
                 if (topic != null) {
-                    topic.setReadRecvByRemote(info.from, info.what, info.seq);
+                    topic.setReadRecvByRemote(info.from, info.what, seq, info.ts);
                 }
 
                 // If this is an update from the current user, update the contact with the new count too.
                 if (mTinode.isMe(info.from)) {
-                    setMsgReadRecv(info.src, info.what, info.seq);
+                    setMsgReadRecv(info.src, info.what, seq);
                 }
                 break;
 

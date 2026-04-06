@@ -14,44 +14,52 @@
     </group>
 
     <item
+        android:id="@+id/action_message_info"
+        android:icon="@drawable/ic_info"
+        android:orderInCategory="101"
+        android:title="@string/action_message_info"
+        android:visible="false"
+        app:showAsAction="always"/>
+
+    <item
         android:id="@+id/action_edit"
         android:icon="@drawable/ic_edit"
-        android:orderInCategory="101"
+        android:orderInCategory="102"
         android:title="@string/action_reply"
         app:showAsAction="always"/>
 
     <item
         android:id="@+id/action_reply"
         android:icon="@drawable/ic_reply"
-        android:orderInCategory="102"
+        android:orderInCategory="103"
         android:title="@string/action_reply"
         app:showAsAction="ifRoom"/>
 
     <item
         android:id="@+id/action_delete"
         android:icon="@drawable/ic_delete"
-        android:orderInCategory="103"
+        android:orderInCategory="104"
         android:title="@string/action_delete"
         app:showAsAction="ifRoom"/>
 
     <item
         android:id="@+id/action_forward"
         android:icon="@drawable/ic_forward"
-        android:orderInCategory="104"
+        android:orderInCategory="105"
         android:title="@string/action_forward"
         app:showAsAction="ifRoom"/>
 
     <item
         android:id="@+id/action_copy"
         android:icon="@drawable/ic_copy"
-        android:orderInCategory="105"
+        android:orderInCategory="106"
         android:title="@string/action_copy"
         app:showAsAction="ifRoom"/>
 
     <item
         android:id="@+id/action_pin"
         android:icon="@drawable/ic_pin"
-        android:orderInCategory="106"
+        android:orderInCategory="107"
         android:title="@string/action_pin"
         android:visible="false"
         app:showAsAction="ifRoom"/>
@@ -59,7 +67,7 @@
     <item
         android:id="@+id/action_unpin"
         android:icon="@drawable/ic_pin_off"
-        android:orderInCategory="107"
+        android:orderInCategory="108"
         android:title="@string/action_unpin"
         android:visible="false"
         app:showAsAction="ifRoom"/>

@@ -245,6 +245,11 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                         showMessageForwardSelector(selected[0], true);
                     }
                     return true;
+                } else if (id == R.id.action_message_info) {
+                    if (selected != null) {
+                        showMessageInfo(selected[0], true);
+                    }
+                    return true;
                 } else if (id == R.id.action_pin || id == R.id.action_unpin) {
                     if (selected != null) {
                         sendPinMessage(selected[0], id == R.id.action_pin);
@@ -667,6 +672,49 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
             ForwardToFragment fragment = new ForwardToFragment();
             fragment.setArguments(args);
             fragment.show(mActivity.getSupportFragmentManager(), MessageActivity.FRAGMENT_FORWARD_TO);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void showMessageInfo(int pos, boolean clearSelection) {
+        final StoredMessage msg = getMessage(pos);
+        if (msg == null || !msg.isMine() || msg.seq <= 0) {
+            return;
+        }
+
+        final ComTopic<VxCard> topic = (ComTopic<VxCard>) Cache.getTinode().getTopic(mTopicName);
+        if (topic == null || !topic.isGrpType() || topic.isChannel()) {
+            return;
+        }
+
+        final Runnable showDialog = () -> {
+            StoredMessage refreshed = BaseDb.getInstance().getStore().getMessageBySeq(topic, msg.seq);
+            MessageReceiptInfoDialog.show(mActivity, topic, refreshed != null ? refreshed : msg);
+            if (clearSelection && mSelectionMode != null) {
+                mSelectionMode.finish();
+            }
+        };
+
+        try {
+            topic.getMeta(topic.getMetaGetBuilder()
+                            .withData(new MsgRange[]{new MsgRange(msg.seq, msg.seq + 1)}, 1)
+                            .build())
+                    .thenApply(new PromisedReply.SuccessListener<>() {
+                        @Override
+                        public PromisedReply<ServerMessage> onSuccess(ServerMessage result) {
+                            mActivity.runOnUiThread(showDialog);
+                            return null;
+                        }
+                    })
+                    .thenCatch(new PromisedReply.FailureListener<>() {
+                        @Override
+                        public <E extends Exception> PromisedReply<ServerMessage> onFailure(E err) {
+                            mActivity.runOnUiThread(showDialog);
+                            return null;
+                        }
+                    });
+        } catch (Exception ignored) {
+            showDialog.run();
         }
     }
 
@@ -1164,6 +1212,7 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                 Menu menu = mSelectionMode.getMenu();
                 boolean mutable = false;
                 boolean repliable = false;
+                boolean infoVisible = false;
                 Boolean pinned = null;
                 if (selected == 1) {
                     StoredMessage msg = getMessage(mSelectedItems.keyAt(0));
@@ -1173,6 +1222,8 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                         if (topic != null && topic.isManager()) {
                             pinned = topic.isPinned(msg.seq);
                         }
+                        infoVisible = msg.isMine() && msg.seq > 0 &&
+                                topic != null && topic.isGrpType() && !topic.isChannel();
                         if (msg.content != null && msg.isMine()) {
                             mutable = true;
                             String[] types = new String[]{"AU", "EX", "FM", "IM", "VC", "VD"};
@@ -1202,6 +1253,7 @@ public class MessagesAdapter extends RecyclerView.Adapter<MessagesAdapter.ViewHo
                 menu.findItem(R.id.action_edit).setVisible(mutable);
                 menu.findItem(R.id.action_reply).setVisible(repliable);
                 menu.findItem(R.id.action_forward).setVisible(repliable);
+                menu.findItem(R.id.action_message_info).setVisible(infoVisible);
                 if (pinned != null) {
                     menu.findItem(R.id.action_pin).setVisible(!pinned);
                     menu.findItem(R.id.action_unpin).setVisible(pinned);

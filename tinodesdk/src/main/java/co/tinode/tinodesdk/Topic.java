@@ -2326,32 +2326,59 @@ public class Topic<DP, DR, SP, SR> implements LocalData, Comparable<Topic> {
         mNotifier.notifyPres(pres);
     }
 
-    protected void setReadRecvByRemote(final String userId, final String what, final int seq) {
+    private static boolean isNewerTimestamp(@Nullable Date current, @Nullable Date incoming) {
+        return incoming != null && (current == null || current.before(incoming));
+    }
+
+    protected void setReadRecvByRemote(final String userId, final String what, final int seq,
+                                       @Nullable Date when) {
         Subscription<SP, SR> sub = getSubscription(userId);
         if (sub == null) {
             return;
         }
+        boolean changed = false;
         switch (what) {
             case Tinode.NOTE_RECV:
-                sub.recv = seq;
-                if (mStore != null) {
-                    mStore.msgRecvByRemote(sub, seq);
+                if (seq > sub.recv) {
+                    sub.recv = seq;
+                    sub.recvAt = when;
+                    changed = true;
+                }
+                if (sub.read > sub.recv) {
+                    sub.recv = sub.read;
+                    changed = true;
+                }
+                if (sub.recv == seq && isNewerTimestamp(sub.recvAt, when)) {
+                    sub.recvAt = when;
+                    changed = true;
                 }
                 break;
             case Tinode.NOTE_READ:
-                sub.read = seq;
+                if (seq > sub.read) {
+                    sub.read = seq;
+                    sub.readAt = when;
+                    changed = true;
+                }
+                if (sub.read == seq && isNewerTimestamp(sub.readAt, when)) {
+                    sub.readAt = when;
+                    changed = true;
+                }
                 if (sub.recv < sub.read) {
                     sub.recv = sub.read;
-                    if (mStore != null) {
-                        mStore.msgRecvByRemote(sub, seq);
-                    }
+                    sub.recvAt = when;
+                    changed = true;
                 }
-                if (mStore != null) {
-                    mStore.msgReadByRemote(sub, seq);
+                if (sub.recv == sub.read && isNewerTimestamp(sub.recvAt, when)) {
+                    sub.recvAt = when;
+                    changed = true;
                 }
                 break;
             default:
                 break;
+        }
+
+        if (changed && mStore != null) {
+            mStore.subUpdate(this, sub);
         }
     }
 
@@ -2365,13 +2392,14 @@ public class Topic<DP, DR, SP, SR> implements LocalData, Comparable<Topic> {
 
             case Tinode.NOTE_READ:
             case Tinode.NOTE_RECV:
-                setReadRecvByRemote(info.from, info.what, info.seq);
+                int seq = info.seq != null ? info.seq : 0;
+                setReadRecvByRemote(info.from, info.what, seq, info.ts);
 
                 // If this is an update from the current user, update the contact with the new count too.
                 if (mTinode.isMe(info.from)) {
                     MeTopic me = mTinode.getMeTopic();
                     if (me != null) {
-                        me.setMsgReadRecv(getName(), info.what, info.seq);
+                        me.setMsgReadRecv(getName(), info.what, seq);
                     }
                 }
                 break;

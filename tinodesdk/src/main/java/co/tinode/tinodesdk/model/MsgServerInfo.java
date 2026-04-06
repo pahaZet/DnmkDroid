@@ -1,6 +1,7 @@
 package co.tinode.tinodesdk.model;
 
 import java.io.Serializable;
+import java.util.Date;
 
 /**
  * Info packet
@@ -13,6 +14,7 @@ public class MsgServerInfo implements Serializable {
     public String src;
     public String from;
     public String what;
+    public Date ts;
     public Integer seq;
     // "event" and "payload" are video call event and its associated JSON payload.
     // Set only when what="call".

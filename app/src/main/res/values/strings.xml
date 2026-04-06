@@ -294,6 +294,7 @@
     <string name="topic_settings">Conversation settings</string>
     <string name="action_reply">Reply</string>
     <string name="action_forward">Forward</string>
+    <string name="action_message_info">Message info</string>
     <string name="forward_to">Forward to…</string>
     <string name="hint_search_contacts">Search contacts</string>
     <string name="report_channel">Report channel</string>
@@ -373,6 +374,15 @@
     <string name="self_topic_description">Notes, messages, links, files saved for posterity</string>
     <string name="message_deleted">message deleted</string>
     <string name="message_not_found">not found</string>
+    <string name="message_info_title">Message info</string>
+    <string name="message_info_summary">Read %1$d/%2$d, delivered %3$d/%2$d</string>
+    <string name="message_info_delivered">Delivered</string>
+    <string name="message_info_delivered_at">Delivered %1$s</string>
+    <string name="message_info_not_delivered">Not delivered yet</string>
+    <string name="message_info_read">Read</string>
+    <string name="message_info_read_at">Read %1$s</string>
+    <string name="message_info_not_read">Not read yet</string>
+    <string name="message_info_no_recipients">No recipients yet</string>
     <string name="delete_message_title_single">Delete message</string>
     <string name="delete_message_title_plural">Delete messages</string>
     <string name="delete_for_peer">Also delete for %1$s</string>

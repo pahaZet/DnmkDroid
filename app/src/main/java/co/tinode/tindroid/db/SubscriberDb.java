@@ -76,6 +76,14 @@ public class SubscriberDb implements BaseColumns {
      */
     private static final String COLUMN_NAME_RECV = "recv";
     /**
+     * Timestamp when the user reported the latest read sequence.
+     */
+    private static final String COLUMN_NAME_READ_AT = "read_at";
+    /**
+     * Timestamp when the user reported the latest received sequence.
+     */
+    private static final String COLUMN_NAME_RECV_AT = "recv_at";
+    /**
      * Max sequence ID marked as deleted, integer
      */
     private static final String COLUMN_NAME_CLEAR = "clear";
@@ -103,6 +111,8 @@ public class SubscriberDb implements BaseColumns {
                     COLUMN_NAME_DELETED + " INT," +
                     COLUMN_NAME_READ + " INT," +
                     COLUMN_NAME_RECV + " INT," +
+                    COLUMN_NAME_READ_AT + " INT," +
+                    COLUMN_NAME_RECV_AT + " INT," +
                     COLUMN_NAME_CLEAR + " INT," +
                     COLUMN_NAME_LAST_SEEN + " INT," +
                     COLUMN_NAME_USER_AGENT + " TEXT)";
@@ -116,13 +126,15 @@ public class SubscriberDb implements BaseColumns {
     // private static final int COLUMN_IDX_DELETED = 6;
     private static final int COLUMN_IDX_READ = 7;
     private static final int COLUMN_IDX_RECV = 8;
-    private static final int COLUMN_IDX_CLEAR = 9;
-    private static final int COLUMN_IDX_LAST_SEEN = 10;
-    private static final int COLUMN_IDX_USER_AGENT = 11;
-    private static final int JOIN_USER_COLUMN_IDX_UID = 12;
-    private static final int JOIN_USER_COLUMN_IDX_PUBLIC = 13;
-    private static final int JOIN_TOPIC_COLUMN_IDX_TOPIC = 14;
-    private static final int JOIN_TOPIC_COLUMN_IDX_SEQ = 15;
+    private static final int COLUMN_IDX_READ_AT = 9;
+    private static final int COLUMN_IDX_RECV_AT = 10;
+    private static final int COLUMN_IDX_CLEAR = 11;
+    private static final int COLUMN_IDX_LAST_SEEN = 12;
+    private static final int COLUMN_IDX_USER_AGENT = 13;
+    private static final int JOIN_USER_COLUMN_IDX_UID = 14;
+    private static final int JOIN_USER_COLUMN_IDX_PUBLIC = 15;
+    private static final int JOIN_TOPIC_COLUMN_IDX_TOPIC = 16;
+    private static final int JOIN_TOPIC_COLUMN_IDX_SEQ = 17;
 
     /**
      * Save user's subscription to topic.
@@ -160,6 +172,12 @@ public class SubscriberDb implements BaseColumns {
             values.put(COLUMN_NAME_UPDATED, (sub.updated != null ? sub.updated : new Date()).getTime());
             values.put(COLUMN_NAME_READ, sub.read);
             values.put(COLUMN_NAME_RECV, sub.recv);
+            if (sub.readAt != null) {
+                values.put(COLUMN_NAME_READ_AT, sub.readAt.getTime());
+            }
+            if (sub.recvAt != null) {
+                values.put(COLUMN_NAME_RECV_AT, sub.recvAt.getTime());
+            }
             values.put(COLUMN_NAME_CLEAR, sub.clear);
 
             if (sub.seen != null) {
@@ -217,6 +235,16 @@ public class SubscriberDb implements BaseColumns {
             }
             values.put(COLUMN_NAME_READ, sub.read);
             values.put(COLUMN_NAME_RECV, sub.recv);
+            if (sub.readAt != null) {
+                values.put(COLUMN_NAME_READ_AT, sub.readAt.getTime());
+            } else {
+                values.putNull(COLUMN_NAME_READ_AT);
+            }
+            if (sub.recvAt != null) {
+                values.put(COLUMN_NAME_RECV_AT, sub.recvAt.getTime());
+            } else {
+                values.putNull(COLUMN_NAME_RECV_AT);
+            }
             values.put(COLUMN_NAME_CLEAR, sub.clear);
             if (sub.seen != null) {
                 if (sub.seen.when != null) {
@@ -282,6 +310,8 @@ public class SubscriberDb implements BaseColumns {
                 TABLE_NAME + "." + COLUMN_NAME_DELETED + "," +
                 TABLE_NAME + "." + COLUMN_NAME_READ + "," +
                 TABLE_NAME + "." + COLUMN_NAME_RECV + "," +
+                TABLE_NAME + "." + COLUMN_NAME_READ_AT + "," +
+                TABLE_NAME + "." + COLUMN_NAME_RECV_AT + "," +
                 TABLE_NAME + "." + COLUMN_NAME_CLEAR + "," +
                 TABLE_NAME + "." + COLUMN_NAME_LAST_SEEN + "," +
                 TABLE_NAME + "." + COLUMN_NAME_USER_AGENT + "," +
@@ -315,11 +345,19 @@ public class SubscriberDb implements BaseColumns {
         s.updated = new Date(c.getLong(COLUMN_IDX_UPDATED));
         s.read = c.getInt(COLUMN_IDX_READ);
         s.recv = c.getInt(COLUMN_IDX_RECV);
+        if (!c.isNull(COLUMN_IDX_READ_AT)) {
+            s.readAt = new Date(c.getLong(COLUMN_IDX_READ_AT));
+        }
+        if (!c.isNull(COLUMN_IDX_RECV_AT)) {
+            s.recvAt = new Date(c.getLong(COLUMN_IDX_RECV_AT));
+        }
         s.clear = c.getInt(COLUMN_IDX_CLEAR);
-        s.seen = new LastSeen(
-                new Date(c.getLong(COLUMN_IDX_LAST_SEEN)),
-                c.getString(COLUMN_IDX_USER_AGENT)
-        );
+        if (!c.isNull(COLUMN_IDX_LAST_SEEN) || !c.isNull(COLUMN_IDX_USER_AGENT)) {
+            s.seen = new LastSeen(
+                    !c.isNull(COLUMN_IDX_LAST_SEEN) ? new Date(c.getLong(COLUMN_IDX_LAST_SEEN)) : null,
+                    c.getString(COLUMN_IDX_USER_AGENT)
+            );
+        }
 
         // From user table
         s.user = c.getString(JOIN_USER_COLUMN_IDX_UID);

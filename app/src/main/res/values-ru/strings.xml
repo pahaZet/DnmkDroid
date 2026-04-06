@@ -241,6 +241,7 @@
     <string name="topic_settings">Настройки чата</string>
     <string name="action_reply">Ответить</string>
     <string name="action_forward">Переслать</string>
+    <string name="action_message_info">Информация</string>
     <string name="hint_search_contacts">Поиск контактов</string>
     <string name="report_channel">Пожаловаться на канал</string>
     <string name="hint_contact_name">Имя контакта</string>
@@ -330,6 +331,15 @@
     <string name="self_topic_description">Примечания, сообщения, ссылки, файлы, сохраненные для потомков</string>
     <string name="message_deleted">сообщение удалено</string>
     <string name="message_not_found">не найдено</string>
+    <string name="message_info_title">Информация о сообщении</string>
+    <string name="message_info_summary">Прочитано %1$d из %2$d, доставлено %3$d из %2$d</string>
+    <string name="message_info_delivered">Доставлено</string>
+    <string name="message_info_delivered_at">Доставлено %1$s</string>
+    <string name="message_info_not_delivered">Еще не доставлено</string>
+    <string name="message_info_read">Прочитано</string>
+    <string name="message_info_read_at">Прочитано %1$s</string>
+    <string name="message_info_not_read">Еще не прочитано</string>
+    <string name="message_info_no_recipients">Получателей пока нет</string>
     <string name="take_photo">Камера</string>
     <string name="select_from_gallery">Галерея</string>
     <string name="record_video">Видео</string>

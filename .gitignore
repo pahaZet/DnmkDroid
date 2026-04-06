@@ -45,3 +45,4 @@ tinodesdk/*.iml
 # Config file for Google services with secret keys
 app/google-services.json
 .gradle-user-home
+.gradle-user
