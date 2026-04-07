@@ -209,7 +209,7 @@ public class TopicInfoFragment extends Fragment implements MenuProvider, Message
             activity.findViewById(R.id.aliasIdWrapper).setVisibility(View.GONE);
         } else {
             ((TextView) activity.findViewById(R.id.topicAddress)).setText(mTopic.getName());
-            activity.findViewById(R.id.topicIdWrapper).setVisibility(View.VISIBLE);
+            activity.findViewById(R.id.topicIdWrapper).setVisibility(View.INVISIBLE);
         }
 
         if (mTopic.getSubCnt() > 0) {
