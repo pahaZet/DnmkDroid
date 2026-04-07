@@ -8,6 +8,7 @@ import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.PowerManager;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.WindowManager;
 
@@ -96,6 +97,10 @@ public class CallActivity extends BaseActivity  {
         String fragmentToShow;
         switch (action) {
             case INTENT_ACTION_CALL_INCOMING:
+                if (!prepareIncomingCallState()) {
+                    finish();
+                    return;
+                }
                 // Incoming call started by the ser
                 boolean accepted = intent.getBooleanExtra(Const.INTENT_EXTRA_CALL_ACCEPTED, false);
                 fragmentToShow = accepted ? FRAGMENT_ACTIVE : FRAGMENT_INCOMING;
@@ -151,6 +156,27 @@ public class CallActivity extends BaseActivity  {
         showFragment(fragmentToShow, args);
     }
 
+    private boolean prepareIncomingCallState() {
+        if (TextUtils.isEmpty(mTopicName) || mSeq <= 0) {
+            Log.w(TAG, "Invalid incoming call launch: topic=" + mTopicName + ", seq=" + mSeq);
+            return false;
+        }
+
+        CallInProgress existing = Cache.getCallInProgress();
+        if (existing == null) {
+            Cache.prepareNewCall(mTopicName, mSeq, null);
+            return true;
+        }
+
+        if (existing.equals(mTopicName, mSeq)) {
+            return true;
+        }
+
+        Log.w(TAG, "Ignoring incoming call launch for " + mTopicName + ":" + mSeq +
+                " because another call is already active: " + existing);
+        return false;
+    }
+
     @Override
     public void onDestroy() {
         if (mTinode != null) {
@@ -182,6 +208,7 @@ public class CallActivity extends BaseActivity  {
     }
 
     void acceptCall() {
+        Cache.setCallActive(mTopicName, mSeq);
         Bundle args = new Bundle();
         args.putString(Const.INTENT_EXTRA_CALL_DIRECTION, "incoming");
         showFragment(FRAGMENT_ACTIVE, args);

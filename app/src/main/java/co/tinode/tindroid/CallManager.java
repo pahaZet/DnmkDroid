@@ -231,6 +231,34 @@ public class CallManager {
         }
     }
 
+    public static void showIncomingCallScreen(Context context, String caller, int seq, boolean audioOnly) {
+        CallInProgress cip = Cache.getCallInProgress();
+        if (cip != null && !cip.equals(caller, seq)) {
+            final ComTopic topic = (ComTopic) Cache.getTinode().getTopic(caller);
+            if (topic != null) {
+                topic.videoCallHangUp(seq);
+            }
+            return;
+        }
+
+        final ComTopic topic = (ComTopic) Cache.getTinode().getTopic(caller);
+        if (topic == null) {
+            Log.w(TAG, "Call from un unknown topic " + caller);
+            return;
+        }
+
+        if (cip == null) {
+            Cache.prepareNewCall(caller, seq, null);
+        }
+
+        Bundle extras = new Bundle();
+        extras.putString(Const.INTENT_EXTRA_TOPIC, caller);
+        extras.putInt(Const.INTENT_EXTRA_SEQ, seq);
+        extras.putBoolean(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, audioOnly);
+        showIncomingCallUi(context, caller, extras);
+        topic.videoCallRinging(seq);
+    }
+
     public static void showOutgoingCallUi(Context context, String topicName,
                                           boolean audioOnly, CallConnection conn) {
         CallInProgress existingCall = Cache.getCallInProgress();
@@ -296,8 +324,6 @@ public class CallManager {
                 int seq = args.getInt(Const.INTENT_EXTRA_SEQ);
                 boolean audioOnly = args.getBoolean(Const.INTENT_EXTRA_CALL_AUDIO_ONLY);
 
-                Cache.setCallActive(topicName, seq);
-
                 PendingIntent askUserIntent = askUserIntent(context, topicName, seq, audioOnly);
                 // Set notification content intent to take user to fullscreen UI if user taps on the
                 // notification body.
@@ -352,27 +378,31 @@ public class CallManager {
     }
 
     private static PendingIntent askUserIntent(Context context, String topicName, int seq, boolean audioOnly) {
-        Intent intent = new Intent(CallActivity.INTENT_ACTION_CALL_INCOMING, null);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION
-                | Intent.FLAG_ACTIVITY_NEW_TASK
-                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        intent.putExtra(Const.INTENT_EXTRA_TOPIC, topicName)
-                .putExtra(Const.INTENT_EXTRA_SEQ, seq)
-                .putExtra(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, audioOnly);
-        intent.setClass(context, CallActivity.class);
+        Intent intent = createIncomingCallIntent(context, topicName, seq, audioOnly);
         return PendingIntent.getActivity(context, 101, intent,
                 PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     public static Intent answerCallIntent(Context context, String topicName, int seq, boolean audioOnly) {
+        return incomingCallIntent(context, topicName, seq, audioOnly, true);
+    }
+
+    public static Intent createIncomingCallIntent(Context context, String topicName, int seq, boolean audioOnly) {
+        return incomingCallIntent(context, topicName, seq, audioOnly, false);
+    }
+
+    private static Intent incomingCallIntent(Context context, String topicName, int seq,
+                                             boolean audioOnly, boolean accepted) {
         Intent intent = new Intent(CallActivity.INTENT_ACTION_CALL_INCOMING, null);
         intent.setFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION
                 | Intent.FLAG_ACTIVITY_NEW_TASK
                 | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         intent.putExtra(Const.INTENT_EXTRA_TOPIC, topicName)
                 .putExtra(Const.INTENT_EXTRA_SEQ, seq)
-                .putExtra(Const.INTENT_EXTRA_CALL_ACCEPTED, true)
                 .putExtra(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, audioOnly);
+        if (accepted) {
+            intent.putExtra(Const.INTENT_EXTRA_CALL_ACCEPTED, true);
+        }
         intent.setClass(context, CallActivity.class);
         return intent;
     }

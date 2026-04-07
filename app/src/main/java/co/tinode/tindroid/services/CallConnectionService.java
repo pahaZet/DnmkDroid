@@ -82,7 +82,7 @@ public class CallConnectionService extends ConnectionService {
         if (!audioOnly) {
             conn.setVideoProvider(new TinodeVideoProvider());
         }
-        conn.setActive();
+        conn.setRinging();
 
         return conn;
     }

@@ -266,6 +266,18 @@ public class MessageActivity extends BaseActivity
 
         // Intent with parameters passed on start of the activity.
         final Intent intent = getIntent();
+        if (UiUtils.isCallLaunchIntent(intent)) {
+            String launchTopic = UiUtils.readTopicNameFromLaunchIntent(intent);
+            int launchSeq = UiUtils.readMessageSeqFromLaunchIntent(intent);
+            if (!TextUtils.isEmpty(launchTopic) && launchSeq > 0) {
+                Intent launch = UiUtils.createPostLoginIntent(this, intent);
+                UiUtils.clearLaunchTopicExtras(intent);
+                launch.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(launch);
+                finish();
+                return;
+            }
+        }
         captureLaunchIntent(intent);
 
         CharSequence text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);

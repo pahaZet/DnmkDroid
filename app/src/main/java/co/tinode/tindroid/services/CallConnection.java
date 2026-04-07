@@ -37,6 +37,7 @@ public class CallConnection extends Connection {
     public void onAnswer() {
         Bundle args = getExtras();
         final String topicName = getAddress().getEncodedSchemeSpecificPart();
+        setActive();
         Intent answer = CallManager.answerCallIntent(mContext, topicName, args.getInt(Const.INTENT_EXTRA_SEQ),
                 args.getBoolean(Const.INTENT_EXTRA_CALL_AUDIO_ONLY));
         mContext.startActivity(answer);

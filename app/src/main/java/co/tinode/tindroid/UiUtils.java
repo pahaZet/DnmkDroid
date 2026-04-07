@@ -402,8 +402,17 @@ public class UiUtils {
         if (TextUtils.isEmpty(topicName)) {
             topicName = intent.getStringExtra("topic");
         }
+        if (TextUtils.isEmpty(topicName)) {
+            topicName = intent.getStringExtra("tag");
+        }
         if (TextUtils.isEmpty(topicName) && intent.getData() != null) {
             topicName = Tinode.parseTinodeUrl(intent.getDataString());
+        }
+        if (TextUtils.isEmpty(topicName)) {
+            topicName = readStringFromLaunchIntent(intent, "gcm.n.tag");
+        }
+        if (TextUtils.isEmpty(topicName)) {
+            topicName = readStringFromLaunchIntent(intent, "gcm.notification.tag");
         }
         if (!TextUtils.isEmpty(topicName)) {
             return topicName;
@@ -418,6 +427,46 @@ public class UiUtils {
         }
 
         return topicName;
+    }
+
+    private static @Nullable String readStringFromLaunchIntent(@Nullable Intent intent, @NonNull String key) {
+        if (intent == null) {
+            return null;
+        }
+
+        String value = intent.getStringExtra(key);
+        if (TextUtils.isEmpty(value)) {
+            Bundle extras = intent.getExtras();
+            Object raw = extras != null ? extras.get(key) : null;
+            if (raw instanceof String) {
+                value = (String) raw;
+            }
+        }
+
+        if (!TextUtils.isEmpty(value)) {
+            return value;
+        }
+
+        RemoteMessage msg = intent.getParcelableExtra("msg");
+        if (msg == null) {
+            return null;
+        }
+
+        value = msg.getData().get(key);
+        if (!TextUtils.isEmpty(value)) {
+            return value;
+        }
+
+        if (msg.getNotification() != null) {
+            if ("topic".equals(key)) {
+                return msg.getNotification().getTag();
+            }
+            if ("content".equals(key) || "body".equals(key)) {
+                return msg.getNotification().getBody();
+            }
+        }
+
+        return null;
     }
 
     static int readMessageSeqFromLaunchIntent(@Nullable Intent intent) {
@@ -454,6 +503,51 @@ public class UiUtils {
         }
     }
 
+    static boolean isCallLaunchIntent(@Nullable Intent intent) {
+        if (intent == null) {
+            return false;
+        }
+
+        if (CallActivity.INTENT_ACTION_CALL_INCOMING.equals(intent.getAction())) {
+            return true;
+        }
+
+        String webrtc = readStringFromLaunchIntent(intent, "webrtc");
+        if ("started".equals(webrtc)) {
+            return true;
+        }
+
+        String content = readStringFromLaunchIntent(intent, "content");
+        if (!"[CALL]".equals(content)) {
+            content = readStringFromLaunchIntent(intent, "body");
+        }
+        if (!"[CALL]".equals(content)) {
+            content = readStringFromLaunchIntent(intent, "gcm.n.body");
+        }
+        if (!"[CALL]".equals(content)) {
+            content = readStringFromLaunchIntent(intent, "gcm.notification.body");
+        }
+
+        return "[CALL]".equals(content);
+    }
+
+    static boolean readCallAudioOnlyFromLaunchIntent(@Nullable Intent intent) {
+        if (intent == null) {
+            return false;
+        }
+
+        if (intent.hasExtra(Const.INTENT_EXTRA_CALL_AUDIO_ONLY)) {
+            return intent.getBooleanExtra(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, false);
+        }
+
+        String value = readStringFromLaunchIntent(intent, Tinode.CALL_AUDIO_ONLY);
+        if (TextUtils.isEmpty(value)) {
+            value = readStringFromLaunchIntent(intent, Const.INTENT_EXTRA_CALL_AUDIO_ONLY);
+        }
+
+        return Boolean.parseBoolean(value);
+    }
+
     static void copyLaunchTopicExtras(@Nullable Intent source, @NonNull Intent target) {
         String topicName = readTopicNameFromLaunchIntent(source);
         if (!TextUtils.isEmpty(topicName)) {
@@ -464,6 +558,12 @@ public class UiUtils {
         if (seqId > 0) {
             target.putExtra(Const.INTENT_EXTRA_SEQ, seqId);
         }
+
+        if (isCallLaunchIntent(source)) {
+            target.putExtra("webrtc", "started");
+            target.putExtra("content", "[CALL]");
+            target.putExtra(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, readCallAudioOnlyFromLaunchIntent(source));
+        }
     }
 
     @NonNull
@@ -473,10 +573,15 @@ public class UiUtils {
             return new Intent(context, ChatsActivity.class);
         }
 
+        int seqId = readMessageSeqFromLaunchIntent(source);
+        if (isCallLaunchIntent(source) && seqId > 0) {
+            return CallManager.createIncomingCallIntent(context, topicName, seqId,
+                    readCallAudioOnlyFromLaunchIntent(source));
+        }
+
         Intent intent = new Intent(context, MessageActivity.class);
         intent.putExtra(Const.INTENT_EXTRA_TOPIC, topicName);
 
-        int seqId = readMessageSeqFromLaunchIntent(source);
         if (seqId > 0) {
             intent.putExtra(Const.INTENT_EXTRA_SEQ, seqId);
         }
@@ -491,8 +596,18 @@ public class UiUtils {
 
         intent.removeExtra(Const.INTENT_EXTRA_TOPIC);
         intent.removeExtra(Const.INTENT_EXTRA_SEQ);
+        intent.removeExtra(Const.INTENT_EXTRA_CALL_AUDIO_ONLY);
         intent.removeExtra("topic");
         intent.removeExtra("seq");
+        intent.removeExtra("tag");
+        intent.removeExtra("webrtc");
+        intent.removeExtra("content");
+        intent.removeExtra("body");
+        intent.removeExtra("gcm.n.tag");
+        intent.removeExtra("gcm.n.body");
+        intent.removeExtra("gcm.notification.tag");
+        intent.removeExtra("gcm.notification.body");
+        intent.removeExtra(Tinode.CALL_AUDIO_ONLY);
         intent.removeExtra("msg");
         if (intent.getData() != null) {
             intent.setData(null);

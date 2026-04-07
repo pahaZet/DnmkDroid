@@ -16,6 +16,7 @@ import android.util.Log;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import androidx.annotation.NonNull;
@@ -24,6 +25,7 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import co.tinode.tindroid.Cache;
+import co.tinode.tindroid.CallManager;
 import co.tinode.tindroid.CallInProgress;
 import co.tinode.tindroid.ChatsActivity;
 import co.tinode.tindroid.Const;
@@ -115,19 +117,35 @@ public class FBaseMessagingService extends FirebaseMessagingService {
 
         // Check if message contains a data payload.
         if (!remoteMessage.getData().isEmpty()) {
-            Map<String, String> data = remoteMessage.getData();
+            Map<String, String> payload = new HashMap<>(remoteMessage.getData());
 
             // Check notification type: message, subscription.
-            String what = data.get("what");
-            topicName = data.get("topic");
+            String what = payload.get("what");
+            topicName = payload.get("topic");
+            if (TextUtils.isEmpty(topicName)) {
+                topicName = payload.get("tag");
+            }
+            if (!TextUtils.isEmpty(topicName)) {
+                payload.put("topic", topicName);
+            }
+
+            String webrtc = payload.get("webrtc");
+            if (TextUtils.isEmpty(webrtc) && isIncomingCallPush(payload)) {
+                webrtc = "started";
+                payload.put("webrtc", webrtc);
+            }
+            if (TextUtils.isEmpty(what) && !TextUtils.isEmpty(webrtc)) {
+                what = "msg";
+                payload.put("what", what);
+            }
+
             if (topicName == null || what == null) {
                 Log.w(TAG, "Invalid payload: " + (what == null ? "what" : "topic") + " is NULL");
                 return;
             }
 
-            String webrtc = data.get("webrtc");
-            String senderId = data.get("xfrom");
-            String seq = data.get("seq");
+            String senderId = payload.get("xfrom");
+            String seq = payload.get("seq");
             if (!TextUtils.isEmpty(seq)) {
                 try {
                     seqId = Integer.parseInt(seq);
@@ -148,16 +166,16 @@ public class FBaseMessagingService extends FirebaseMessagingService {
             // Update data state, maybe fetch missing data.
             String token = Utils.getLoginToken(getApplicationContext());
             String selectedTopic = Cache.getSelectedTopicName();
-            tinode.oobNotification(data, token, "started".equals(webrtc) ||
+            tinode.oobNotification(payload, token, "started".equals(webrtc) ||
                     topicName.equals(selectedTopic));
 
             if (webrtc != null) {
                 // It's a video call.
-                handleCallNotification(webrtc, tinode.isMe(senderId), data);
+                handleCallNotification(webrtc, tinode.isMe(senderId), payload);
                 return;
             }
 
-            if (Boolean.parseBoolean(data.get("silent"))) {
+            if (Boolean.parseBoolean(payload.get("silent"))) {
                 // TODO: cancel some notifications.
                 // Silent notification: nothing to show.
                 return;
@@ -202,7 +220,7 @@ public class FBaseMessagingService extends FirebaseMessagingService {
                 avatar = senderIcon;
 
                 // Try to retrieve rich message content.
-                String richContent = data.get("rc");
+                String richContent = payload.get("rc");
                 if (!TextUtils.isEmpty(richContent)) {
                     try {
                         Drafty draftyBody = Tinode.jsonDeserialize(richContent, Drafty.class.getCanonicalName());
@@ -225,7 +243,7 @@ public class FBaseMessagingService extends FirebaseMessagingService {
 
                 // If rich content is not available, use plain text content.
                 if (TextUtils.isEmpty(body)) {
-                    body = data.get("content");
+                    body = payload.get("content");
                     if (TextUtils.isEmpty(body)) {
                         body = getResources().getString(R.string.new_message);
                     }
@@ -350,7 +368,10 @@ public class FBaseMessagingService extends FirebaseMessagingService {
             int origSeq = UiUtils.parseSeqReference(data.get("replace"));
             switch (webrtc) {
                 case "started":
-                    // Do nothing here: the incoming call is accepted in onData.
+                    if (!isMe && !TextUtils.isEmpty(topicName)) {
+                        CallManager.acceptIncomingCall(this, topicName, seq,
+                                Boolean.parseBoolean(data.get(Tinode.CALL_AUDIO_ONLY)));
+                    }
                     break;
                 case "accepted":
                     CallInProgress call = Cache.getCallInProgress();
@@ -380,6 +401,14 @@ public class FBaseMessagingService extends FirebaseMessagingService {
         } catch (NumberFormatException ex) {
             Log.w(TAG, "Invalid seq value '" + seqStr + "'");
         }
+    }
+
+    private static boolean isIncomingCallPush(@NonNull Map<String, String> data) {
+        String content = data.get("content");
+        if (TextUtils.isEmpty(content)) {
+            content = data.get("body");
+        }
+        return "[CALL]".equals(content);
     }
 
     /**
