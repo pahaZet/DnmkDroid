@@ -65,7 +65,8 @@
             android:id="@+id/topicIdWrapper"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:visibility="invisible">
 
             <TextView
                 style="@style/sectionTitleStyle"

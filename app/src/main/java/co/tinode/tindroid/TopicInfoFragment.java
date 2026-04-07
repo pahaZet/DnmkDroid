@@ -513,7 +513,6 @@ public class TopicInfoFragment extends Fragment implements MenuProvider, Message
 
     private static class MemberViewHolder extends RecyclerView.ViewHolder {
         final TextView name;
-        final TextView extraInfo;
         final LinearLayout statusContainer;
         final TextView[] status;
         final ImageButton more;
@@ -524,7 +523,6 @@ public class TopicInfoFragment extends Fragment implements MenuProvider, Message
             super(item);
 
             name = item.findViewById(android.R.id.text1);
-            extraInfo = item.findViewById(android.R.id.text2);
             statusContainer = item.findViewById(R.id.statusContainer);
             status = new TextView[statusContainer.getChildCount()];
             for (int i = 0; i < status.length; i++) {
@@ -602,7 +600,6 @@ public class TopicInfoFragment extends Fragment implements MenuProvider, Message
                 Log.w(TAG, "Pub is null for " + sub.user);
             }
             holder.name.setText(title);
-            holder.extraInfo.setText(sub.acs != null ? sub.acs.getMode() : "");
 
             int i = 0;
             UiUtils.AccessModeLabel[] labels = UiUtils.accessModeLabels(sub.acs, ss.status);
