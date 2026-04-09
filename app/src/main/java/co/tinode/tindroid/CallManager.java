@@ -46,6 +46,9 @@ import static android.content.Context.TELECOM_SERVICE;
 
 public class CallManager {
     private static final String TAG = "CallManager";
+    // Keep calls fully inside the app so they are not surfaced by Android Telecom
+    // to watches, companion devices, car systems, and similar endpoints.
+    private static final boolean FORCE_LOCAL_CALL_UI = true;
 
     public static final String NOTIFICATION_TAG_INCOMING_CALL = "incoming_call";
 
@@ -110,8 +113,11 @@ public class CallManager {
 
     // FIXME: this has to be called on logout.
     public static void unregisterCallingAccount() {
+        if (sSharedInstance == null) {
+            return;
+        }
         try {
-            CallManager shared = CallManager.getShared();
+            CallManager shared = sSharedInstance;
             @SuppressLint("UnsafeOptInUsageError")
             TelecomManager telecomManager = (TelecomManager) TindroidApp.getAppContext().getSystemService(TELECOM_SERVICE);
             telecomManager.unregisterPhoneAccount(shared.mPhoneAccountHandle);
@@ -123,7 +129,7 @@ public class CallManager {
     public static void placeOutgoingCall(Activity activity, String callee, boolean audioOnly) {
         TelecomManager telecomManager = (TelecomManager) TindroidApp.getAppContext().getSystemService(TELECOM_SERVICE);
         if (shouldBypassTelecom(activity, telecomManager, true)) {
-            // Self-managed phone accounts are not supported, bypassing Telecom.
+            // Keep outgoing calls local to the app instead of publishing them through Telecom.
             showOutgoingCallUi(activity, callee, audioOnly, null);
             return;
         }
@@ -198,17 +204,17 @@ public class CallManager {
         extras.putInt(Const.INTENT_EXTRA_SEQ, seq);
         extras.putBoolean(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, audioOnly);
 
-        CallManager shared = CallManager.getShared();
         TelecomManager telecomManager = (TelecomManager) context.getSystemService(TELECOM_SERVICE);
 
         if (shouldBypassTelecom(context, telecomManager, false)) {
-            // Bypass Telecom when self-managed calls are not supported.
+            // Keep incoming calls local to the app instead of publishing them through Telecom.
             Cache.prepareNewCall(caller, seq, null);
             showIncomingCallUi(context, caller, extras);
             topic.videoCallRinging(seq);
             return;
         }
 
+        CallManager shared = CallManager.getShared();
         Uri uri = Uri.fromParts("tinode", caller, null);
         Bundle callParams = new Bundle();
         callParams.putParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS, uri);
@@ -312,6 +318,7 @@ public class CallManager {
                 Notification.Builder builder = new Notification.Builder(context);
 
                 builder.setOngoing(true)
+                        .setLocalOnly(true)
                         .setVisibility(Notification.VISIBILITY_PUBLIC)
                         .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE));
 
@@ -423,6 +430,10 @@ public class CallManager {
     }
 
     private static boolean shouldBypassTelecom(Context context, TelecomManager tm, boolean outgoing) {
+        if (FORCE_LOCAL_CALL_UI) {
+            return true;
+        }
+
         if (!UiUtils.isPermissionGranted(context, Manifest.permission.MANAGE_OWN_CALLS)) {
             Log.w(TAG, "No permission MANAGE_OWN_CALLS");
             return true;
