@@ -150,17 +150,24 @@ public class CallFragment extends Fragment {
     private boolean mCallStarted = false;
     private boolean mCallClosing = false;
     private boolean mAudioOnly = false;
+    private boolean mAwaitingCameraPermission = false;
     private boolean mArrangementVideoOn = false;
     private long mCallConnectedAt = 0L;
     private final Handler mCallDurationHandler = new Handler(Looper.getMainLooper());
+    private static final long CALL_DURATION_RETRY_DELAY_MS = 250L;
     private final Runnable mCallDurationUpdateTask = new Runnable() {
         @Override
         public void run() {
-            if (!isAdded() || mCallStatus == null || mCallConnectedAt <= 0) {
+            if (mCallConnectedAt <= 0) {
                 return;
             }
 
-            long elapsed = SystemClock.uptimeMillis() - mCallConnectedAt;
+            if (!isAdded() || mCallStatus == null) {
+                mCallDurationHandler.postDelayed(this, CALL_DURATION_RETRY_DELAY_MS);
+                return;
+            }
+
+            long elapsed = Math.max(0L, SystemClock.elapsedRealtime() - mCallConnectedAt);
             mCallStatus.setText(UtilsString.millisToTime((int) elapsed));
             long nextTickDelay = 1000 - (elapsed % 1000);
             mCallDurationHandler.postDelayed(this, nextTickDelay);
@@ -187,6 +194,24 @@ public class CallFragment extends Fragment {
                 }
                 // All permissions granted.
                 startMediaAndSignal(activity);
+            });
+    private final ActivityResultLauncher<String> mCameraPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                Activity activity = getActivity();
+                boolean enableVideo = mAwaitingCameraPermission;
+                mAwaitingCameraPermission = false;
+                if (!enableVideo || activity == null || activity.isFinishing() || activity.isDestroyed()) {
+                    return;
+                }
+                if (!granted) {
+                    mVideoOff = true;
+                    refreshVideoButtonUi();
+                    return;
+                }
+                if (!enableLocalVideo(activity)) {
+                    mVideoOff = true;
+                    refreshVideoButtonUi();
+                }
             });
 
     public CallFragment() {
@@ -259,10 +284,10 @@ public class CallFragment extends Fragment {
         mAudioSettings.speakerphone = TindroidApp.isSpeakerphoneOn();
 
         audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-        boolean speakerphoneOn = !mAudioOnly;
-        speakerphoneOn &= TindroidApp.setSpeakerphoneOn(speakerphoneOn);
-        mToggleSpeakerphoneBtn.setImageResource(speakerphoneOn ? R.drawable.ic_volume_up : R.drawable.ic_volume_off);
-        updateProximityScreenOff(!speakerphoneOn);
+        TindroidApp.setSpeakerphoneOn(false);
+        refreshSpeakerphoneUi();
+        mVideoOff = mAudioOnly;
+        refreshVideoButtonUi();
 
         if (!mTopic.isAttached()) {
             mTopic.addListener(mTopicListener);
@@ -286,8 +311,10 @@ public class CallFragment extends Fragment {
         mRemoteIceCandidatesCache = new ArrayList<>();
 
         // Check permissions.
-        LinkedList<String> missing = UiUtils.getMissingPermissions(activity,
-                new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO});
+        final String[] permissions = mAudioOnly ?
+                new String[]{Manifest.permission.RECORD_AUDIO} :
+                new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO};
+        LinkedList<String> missing = UiUtils.getMissingPermissions(activity, permissions);
         if (!missing.isEmpty()) {
             mMediaPermissionLauncher.launch(missing.toArray(new String[]{}));
             return;
@@ -443,6 +470,9 @@ public class CallFragment extends Fragment {
 
     private void muteVideo() {
         try {
+            if (mLocalVideoTrack != null) {
+                mLocalVideoTrack.setEnabled(false);
+            }
             mVideoCapturerAndroid.stopCapture();
             mLocalVideoView.setVisibility(View.INVISIBLE);
             sendToPeer(VIDEO_MUTED_EVENT);
@@ -452,6 +482,9 @@ public class CallFragment extends Fragment {
     }
 
     private void unmuteVideo() {
+        if (mLocalVideoTrack != null) {
+            mLocalVideoTrack.setEnabled(true);
+        }
         mVideoCapturerAndroid.startCapture(CAMERA_RESOLUTION_WIDTH, CAMERA_RESOLUTION_HEIGHT, CAMERA_FPS);
         mLocalVideoView.setVisibility(View.VISIBLE);
         sendToPeer(VIDEO_UNMUTED_EVENT);
@@ -469,47 +502,148 @@ public class CallFragment extends Fragment {
             mAudioOff = disabled;
         }
 
-        b.setImageResource(disabled ? disabledIcon : enabledIcon);
-
         if (video) {
             if (disabled) {
+                refreshVideoButtonUi();
                 muteVideo();
-            } else {
-                unmuteVideo();
+                return;
             }
+            Activity activity = getActivity();
+            if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+                mVideoOff = true;
+                refreshVideoButtonUi();
+                return;
+            }
+            if (!UiUtils.isPermissionGranted(activity, Manifest.permission.CAMERA)) {
+                mVideoOff = true;
+                mAwaitingCameraPermission = true;
+                refreshVideoButtonUi();
+                mCameraPermissionLauncher.launch(Manifest.permission.CAMERA);
+                return;
+            }
+            if (!enableLocalVideo(activity)) {
+                mVideoOff = true;
+            }
+            refreshVideoButtonUi();
             return;
         }
-        mLocalAudioTrack.setEnabled(!disabled);
-
-        // Need to disable microphone too, otherwise webrtc LocalPeer produces echo.
-        TindroidApp.setMicrophoneMute(disabled);
-
-        if (mLocalPeer == null) {
-            return;
-        }
-
-        for (RtpSender transceiver : mLocalPeer.getSenders()) {
-            MediaStreamTrack track = transceiver.track();
-            if (track instanceof AudioTrack) {
-                track.setEnabled(!disabled);
-            }
-        }
+        b.setImageResource(disabled ? disabledIcon : enabledIcon);
+        applyAudioMuteState();
     }
 
     @SuppressLint("UnsafeOptInUsageError")
     private void toggleSpeakerphone(FloatingActionButton b) {
+        TindroidApp.setAudioMode(AudioManager.MODE_IN_COMMUNICATION);
         boolean isEnabled = TindroidApp.isSpeakerphoneOn();
         boolean speakerphoneOn = !isEnabled;
         if (TindroidApp.setSpeakerphoneOn(speakerphoneOn)) {
-            b.setImageResource(speakerphoneOn ? R.drawable.ic_volume_up : R.drawable.ic_volume_off);
-            updateProximityScreenOff(!speakerphoneOn);
+            refreshSpeakerphoneUi();
         }
+    }
+
+    private void refreshSpeakerphoneUi() {
+        if (mToggleSpeakerphoneBtn == null) {
+            return;
+        }
+
+        boolean speakerphoneOn = TindroidApp.isSpeakerphoneOn();
+        mToggleSpeakerphoneBtn.setImageResource(speakerphoneOn ?
+                R.drawable.ic_volume_up : R.drawable.ic_volume_off);
+        updateProximityScreenOff(!speakerphoneOn);
+    }
+
+    private void refreshVideoButtonUi() {
+        if (mToggleCameraBtn == null) {
+            return;
+        }
+        mToggleCameraBtn.setImageResource(mVideoOff ? R.drawable.ic_videocam_off : R.drawable.ic_videocam);
     }
 
     private void updateProximityScreenOff(boolean enable) {
         Activity activity = getActivity();
         if (activity instanceof CallActivity callActivity) {
             callActivity.updateProximityScreenOff(enable);
+        }
+    }
+
+    private void applyAudioMuteState() {
+        boolean enabled = !mAudioOff;
+
+        if (mLocalAudioTrack != null) {
+            mLocalAudioTrack.setEnabled(enabled);
+        }
+
+        // Disable the physical microphone too, so the capture pipeline is muted consistently.
+        TindroidApp.setMicrophoneMute(!enabled);
+
+        if (mLocalPeer == null) {
+            return;
+        }
+
+        for (RtpSender sender : mLocalPeer.getSenders()) {
+            MediaStreamTrack track = sender.track();
+            if (track instanceof AudioTrack) {
+                track.setEnabled(enabled);
+            }
+        }
+    }
+
+    private boolean ensureLocalVideoTrack(Activity activity) {
+        if (activity == null || activity.isFinishing() || activity.isDestroyed() ||
+                mPeerConnectionFactory == null || mRootEglBase == null || mLocalVideoView == null) {
+            return false;
+        }
+
+        if (!UiUtils.isPermissionGranted(activity, Manifest.permission.CAMERA)) {
+            return false;
+        }
+
+        if (mVideoCapturerAndroid == null) {
+            mVideoCapturerAndroid = createCameraCapturer(new Camera1Enumerator(false));
+            if (mVideoCapturerAndroid == null) {
+                return false;
+            }
+        }
+
+        if (mVideoSource == null) {
+            SurfaceTextureHelper surfaceTextureHelper =
+                    SurfaceTextureHelper.create("CaptureThread", mRootEglBase.getEglBaseContext());
+            mVideoSource = mPeerConnectionFactory.createVideoSource(mVideoCapturerAndroid.isScreencast());
+            mVideoCapturerAndroid.initialize(surfaceTextureHelper, activity, mVideoSource.getCapturerObserver());
+        }
+
+        if (mLocalVideoTrack == null) {
+            mLocalVideoTrack = mPeerConnectionFactory.createVideoTrack("100", mVideoSource);
+            mLocalVideoTrack.addSink(mLocalVideoView);
+            if (mLocalPeer != null) {
+                mLocalPeer.addTrack(mLocalVideoTrack, java.util.Collections.singletonList("102"));
+            }
+        }
+        mLocalVideoTrack.setEnabled(!mVideoOff);
+        return true;
+    }
+
+    private boolean enableLocalVideo(Activity activity) {
+        boolean wasAudioOnly = mAudioOnly;
+        mAudioOnly = false;
+        if (!ensureLocalVideoTrack(activity)) {
+            mAudioOnly = wasAudioOnly;
+            return false;
+        }
+
+        try {
+            if (mVideoSource == null || mVideoSource.state() != MediaSource.State.LIVE) {
+                mVideoCapturerAndroid.startCapture(CAMERA_RESOLUTION_WIDTH, CAMERA_RESOLUTION_HEIGHT, CAMERA_FPS);
+            }
+            if (mLocalVideoTrack != null) {
+                mLocalVideoTrack.setEnabled(true);
+            }
+            mLocalVideoView.setVisibility(View.VISIBLE);
+            sendToPeer(VIDEO_UNMUTED_EVENT);
+            return true;
+        } catch (InterruptedException | IllegalStateException e) {
+            Log.w(TAG, "Failed to enable local video", e);
+            return false;
         }
     }
 
@@ -553,33 +687,24 @@ public class CallFragment extends Fragment {
         // Create an AudioSource instance
         mAudioSource = mPeerConnectionFactory.createAudioSource(audioConstraints);
         mLocalAudioTrack = mPeerConnectionFactory.createAudioTrack("101", mAudioSource);
-        if (mAudioOff) {
-            mLocalAudioTrack.setEnabled(false);
-        }
-
-        // Create a VideoCapturer instance.
-        mVideoCapturerAndroid = createCameraCapturer(new Camera1Enumerator(false));
-
-        // Create a VideoSource instance
-        if (mVideoCapturerAndroid != null) {
-            SurfaceTextureHelper surfaceTextureHelper =
-                    SurfaceTextureHelper.create("CaptureThread", mRootEglBase.getEglBaseContext());
-            mVideoSource = mPeerConnectionFactory.createVideoSource(mVideoCapturerAndroid.isScreencast());
-            mVideoCapturerAndroid.initialize(surfaceTextureHelper, activity, mVideoSource.getCapturerObserver());
-        }
-
-        mLocalVideoTrack = mPeerConnectionFactory.createVideoTrack("100", mVideoSource);
+        applyAudioMuteState();
 
         mVideoOff = mAudioOnly;
-        if (mVideoCapturerAndroid != null && !mVideoOff) {
-            // Only start video in video calls (in audio-only calls video may be turned on later).
-            mVideoCapturerAndroid.startCapture(CAMERA_RESOLUTION_WIDTH, CAMERA_RESOLUTION_HEIGHT, CAMERA_FPS);
+        if (!mAudioOnly || UiUtils.isPermissionGranted(activity, Manifest.permission.CAMERA)) {
+            ensureLocalVideoTrack(activity);
+        }
+        if (!mVideoOff && mVideoCapturerAndroid != null) {
+            try {
+                mVideoCapturerAndroid.startCapture(CAMERA_RESOLUTION_WIDTH, CAMERA_RESOLUTION_HEIGHT, CAMERA_FPS);
+            } catch (InterruptedException | IllegalStateException e) {
+                Log.w(TAG, "Failed to start local video capture", e);
+                mVideoOff = true;
+            }
         }
 
-        // VideoRenderer is ready => add the renderer to the VideoTrack.
-        mLocalVideoTrack.addSink(mLocalVideoView);
         mLocalVideoView.setMirror(true);
         mRemoteVideoView.setMirror(false);
+        refreshVideoButtonUi();
 
         handleCallStart();
     }
@@ -777,7 +902,6 @@ public class CallFragment extends Fragment {
                 rearrangePeerViews(activity, false);
                 mTopic.videoCallAccept(mCallSeqID);
                 Cache.setCallConnected();
-                startCallDurationUpdates();
                 break;
             default:
                 break;
@@ -819,7 +943,7 @@ public class CallFragment extends Fragment {
             Log.d(TAG, "onStateChange: remote data channel state: " + mChannel.state().toString());
             switch (mChannel.state()) {
                 case OPEN:
-                    sendToPeer(!mVideoOff && mVideoSource.state() == MediaSource.State.LIVE ?
+                    sendToPeer(!mVideoOff && mVideoSource != null && mVideoSource.state() == MediaSource.State.LIVE ?
                             VIDEO_UNMUTED_EVENT : VIDEO_MUTED_EVENT);
                     break;
                 case CLOSED:
@@ -960,6 +1084,10 @@ public class CallFragment extends Fragment {
             public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {
                 Log.d(TAG, "onIceConnectionChange() called with: iceConnectionState = [" + iceConnectionState + "]");
                 switch (iceConnectionState) {
+                    case CONNECTED:
+                    case COMPLETED:
+                        handleMediaConnected();
+                        break;
                     case CLOSED:
                     case FAILED:
                         handleCallClose(getActivity(), false, true);
@@ -1050,6 +1178,7 @@ public class CallFragment extends Fragment {
         if (mLocalVideoTrack != null) {
             mLocalPeer.addTrack(mLocalVideoTrack, streamIds);
         }
+        applyAudioMuteState();
 
         // Explicitly create and send an offer for the caller (OUTGOING).
         // Relying on onRenegotiationNeeded is unreliable across platforms/devices.
@@ -1085,7 +1214,23 @@ public class CallFragment extends Fragment {
 
         createPeerConnection(true);
         Cache.setCallConnected();
-        startCallDurationUpdates();
+    }
+
+    private void handleMediaConnected() {
+        Activity activity = getActivity();
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+            return;
+        }
+
+        activity.runOnUiThread(() -> {
+            if (!isAdded() || mCallConnectedAt > 0) {
+                return;
+            }
+
+            Cache.setCallConnected();
+            stopSoundEffect();
+            startCallDurationUpdates();
+        });
     }
 
     // Handles remote SDP offer received from the peer,
@@ -1230,13 +1375,11 @@ public class CallFragment extends Fragment {
     }
 
     private void startCallDurationUpdates() {
-        if (mCallConnectedAt != 0) {
-            return;
+        if (mCallConnectedAt == 0) {
+            mCallConnectedAt = SystemClock.elapsedRealtime();
         }
-
-        mCallConnectedAt = SystemClock.uptimeMillis();
         mCallDurationHandler.removeCallbacks(mCallDurationUpdateTask);
-        mCallDurationUpdateTask.run();
+        mCallDurationHandler.post(mCallDurationUpdateTask);
     }
 
     private void stopCallDurationUpdates() {

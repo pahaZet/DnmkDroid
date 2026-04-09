@@ -9,6 +9,10 @@ import android.os.Build;
 import android.telecom.CallAudioState;
 import android.util.Log;
 
+import androidx.annotation.Nullable;
+
+import java.util.List;
+
 public class AudioControl {
     private static final String TAG = "AudioControl";
 
@@ -63,32 +67,16 @@ public class AudioControl {
             requestAudioFocus();
         }
 
-        // Set the appropriate audio mode based on whether the speakerphone is being enabled or disabled
-        mAudioManager.setMode(enable ? AudioManager.MODE_IN_COMMUNICATION : AudioManager.MODE_NORMAL);
-
-        // Check if the device is running Android 12 (API level 31) or higher
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // Android 14 and above
-            if (enable) {
-                // Retrieve a list of all available output audio devices
-                AudioDeviceInfo[] devices = mAudioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
-
-                // Iterate through the list to find the built-in speaker
-                for (AudioDeviceInfo device : devices) {
-                    if (device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
-                        // Set the communication device to the built-in speaker
-                        done = mAudioManager.setCommunicationDevice(device);
-                        break; // Exit the loop once the speaker is set
-                    }
-                }
-            } else {
-                // Clear the communication device to revert to the default audio routing.
-                mAudioManager.clearCommunicationDevice();
-                done = true; // Assume the operation was successful, no way to verify.
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            done = routeCommunicationDevice(enable);
         } else {
-            // For Android versions below API level 31, use the traditional method to toggle the speakerphone.
             mAudioManager.setSpeakerphoneOn(enable);
-            done = true; // Assume the operation was successful, no way to verify.
+            done = mAudioManager.isSpeakerphoneOn() == enable;
+        }
+
+        if (!done) {
+            mAudioManager.setSpeakerphoneOn(enable);
+            done = mAudioManager.isSpeakerphoneOn() == enable;
         }
 
         if (!done) {
@@ -107,7 +95,8 @@ public class AudioControl {
         // Not in a call, use the AudioManager API to check the speakerphone status.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             AudioDeviceInfo device = mAudioManager.getCommunicationDevice();
-            return device != null && device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+            return device != null ? device.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER :
+                    mAudioManager.isSpeakerphoneOn();
         }
 
         // Legacy platforms.
@@ -172,5 +161,43 @@ public class AudioControl {
         if (status != null) {
             Log.w(TAG, "abandonAudioFocus failed: " + status);
         }
+    }
+
+    @Nullable
+    private AudioDeviceInfo findOutputDevice(int deviceType) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            List<AudioDeviceInfo> devices = mAudioManager.getAvailableCommunicationDevices();
+            for (AudioDeviceInfo device : devices) {
+                if (device.getType() == deviceType) {
+                    return device;
+                }
+            }
+            return null;
+        }
+
+        AudioDeviceInfo[] devices = mAudioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+        for (AudioDeviceInfo device : devices) {
+            if (device.getType() == deviceType) {
+                return device;
+            }
+        }
+        return null;
+    }
+
+    private boolean routeCommunicationDevice(boolean enableSpeaker) {
+        AudioDeviceInfo target = findOutputDevice(enableSpeaker ?
+                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER :
+                AudioDeviceInfo.TYPE_BUILTIN_EARPIECE);
+        if (target != null && mAudioManager.setCommunicationDevice(target)) {
+            return true;
+        }
+
+        if (!enableSpeaker) {
+            // Fall back to the platform default route if the device has no earpiece.
+            mAudioManager.clearCommunicationDevice();
+            AudioDeviceInfo current = mAudioManager.getCommunicationDevice();
+            return current == null || current.getType() != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+        }
+        return false;
     }
 }

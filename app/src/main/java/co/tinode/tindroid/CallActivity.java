@@ -44,6 +44,7 @@ public class CallActivity extends BaseActivity  {
 
     private String mTopicName;
     private int mSeq;
+    private boolean mAudioOnly;
     private ComTopic<VxCard> mTopic;
     private EventListener mLoginListener;
 
@@ -94,9 +95,9 @@ public class CallActivity extends BaseActivity  {
         mLoginListener = new EventListener();
         mTinode.addListener(mLoginListener);
 
+        mAudioOnly = intent.getBooleanExtra(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, false);
         Bundle args = new Bundle();
-        args.putBoolean(Const.INTENT_EXTRA_CALL_AUDIO_ONLY,
-                intent.getBooleanExtra(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, false));
+        args.putBoolean(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, mAudioOnly);
         String fragmentToShow;
         switch (action) {
             case INTENT_ACTION_CALL_INCOMING:
@@ -214,6 +215,7 @@ public class CallActivity extends BaseActivity  {
         Cache.setCallActive(mTopicName, mSeq);
         Bundle args = new Bundle();
         args.putString(Const.INTENT_EXTRA_CALL_DIRECTION, "incoming");
+        args.putBoolean(Const.INTENT_EXTRA_CALL_AUDIO_ONLY, mAudioOnly);
         showFragment(FRAGMENT_ACTIVE, args);
     }
 
