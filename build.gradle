@@ -62,7 +62,7 @@ static def gitVersionName() {
     def process = "git describe --tags".execute()
     def text = process.text.trim()
     if (text.isEmpty()) {
-        return "2026.04.07.1"
+        return "2026.04.09.1"
     }
     // Remove leading 'v' if present
     return text.startsWith("v") ? text.substring(1) : text

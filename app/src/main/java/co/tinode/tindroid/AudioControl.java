@@ -58,8 +58,10 @@ public class AudioControl {
 
         // Not in a call, use the AudioManager API to toggle the speakerphone.
         boolean done = false;
-        // Request audio focus to ensure the app can control audio output
-        requestAudioFocus();
+        if (enable) {
+            // Request audio focus only when we actually switch playback to the app.
+            requestAudioFocus();
+        }
 
         // Set the appropriate audio mode based on whether the speakerphone is being enabled or disabled
         mAudioManager.setMode(enable ? AudioManager.MODE_IN_COMMUNICATION : AudioManager.MODE_NORMAL);

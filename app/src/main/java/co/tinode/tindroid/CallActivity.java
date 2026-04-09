@@ -1,5 +1,6 @@
 package co.tinode.tindroid;
 
+import android.annotation.SuppressLint;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -36,6 +37,8 @@ public class CallActivity extends BaseActivity  {
     public static final String INTENT_ACTION_CALL_START = "tindroidx.intent.action.call.START";
 
     private boolean mTurnScreenOffWhenDone;
+    private boolean mUseProximityScreenOff;
+    private PowerManager.WakeLock mProximityWakeLock;
 
     private Tinode mTinode;
 
@@ -141,7 +144,6 @@ public class CallActivity extends BaseActivity  {
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
                         WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON |
-                        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
                         WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
                         WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
 
@@ -151,6 +153,7 @@ public class CallActivity extends BaseActivity  {
 
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         mTurnScreenOffWhenDone = !pm.isInteractive();
+        initProximityWakeLock(pm);
         // Try to reconnect and subscribe.
         topicAttach();
         showFragment(fragmentToShow, args);
@@ -183,6 +186,7 @@ public class CallActivity extends BaseActivity  {
             mTinode.removeListener(mLoginListener);
         }
         mLoginListener = null;
+        releaseProximityWakeLock();
 
         Cache.endCallInProgress();
 
@@ -191,7 +195,6 @@ public class CallActivity extends BaseActivity  {
 
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
                 WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON |
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
                 WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
                 WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
 
@@ -227,10 +230,16 @@ public class CallActivity extends BaseActivity  {
         finish();
     }
 
+    void updateProximityScreenOff(boolean enable) {
+        mUseProximityScreenOff = enable;
+        refreshProximityWakeLock();
+    }
+
     @Override
     public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode,
                                               @NonNull Configuration newConfig) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+        refreshProximityWakeLock();
 
         FragmentManager fm = getSupportFragmentManager();
         CallFragment fragment = (CallFragment) fm.findFragmentByTag(FRAGMENT_ACTIVE);
@@ -246,6 +255,37 @@ public class CallActivity extends BaseActivity  {
         Fragment fragment = fm.findFragmentByTag(FRAGMENT_ACTIVE);
         if (fragment instanceof CallFragment callFragment) {
             callFragment.enterPictureInPictureMode();
+        }
+    }
+
+    private void initProximityWakeLock(PowerManager pm) {
+        if (pm == null || !pm.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
+            return;
+        }
+
+        mProximityWakeLock = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK,
+                TAG + ":proximity");
+        mProximityWakeLock.setReferenceCounted(false);
+    }
+
+    @SuppressLint("WakelockTimeout")
+    private void acquireProximityWakeLock() {
+        if (mProximityWakeLock != null && !mProximityWakeLock.isHeld()) {
+            mProximityWakeLock.acquire();
+        }
+    }
+
+    private void releaseProximityWakeLock() {
+        if (mProximityWakeLock != null && mProximityWakeLock.isHeld()) {
+            mProximityWakeLock.release(PowerManager.RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY);
+        }
+    }
+
+    private void refreshProximityWakeLock() {
+        if (mUseProximityScreenOff && !isInPictureInPictureMode()) {
+            acquireProximityWakeLock();
+        } else {
+            releaseProximityWakeLock();
         }
     }
 

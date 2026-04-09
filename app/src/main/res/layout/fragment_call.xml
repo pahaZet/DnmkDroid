@@ -53,12 +53,31 @@
         app:layout_constraintTop_toBottomOf="@id/imageAvatar"
         tools:text="John Doe" />
 
+    <TextView
+        android:id="@+id/callStatus"
+        style="?android:textAppearanceMedium"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:alpha="0.9"
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:layout_marginBottom="16dp"
+        android:background="@drawable/bubble"
+        android:backgroundTint="@color/colorChipBackground"
+        android:backgroundTintMode="multiply"
+        android:text="@string/connecting_call"
+        app:layout_constraintBottom_toTopOf="@id/callControlsPanel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        tools:text="00:15" />
+
     <org.webrtc.SurfaceViewRenderer
         android:id="@+id/remoteView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:visibility="gone"
-        android:keepScreenOn="true"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
@@ -72,7 +91,6 @@
         android:layout_height="@dimen/local_video_frame"
         android:layout_margin="@dimen/fab_margin"
         android:elevation="4dp"
-        android:keepScreenOn="true"
         android:visibility="gone"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toTopOf="@id/callControlsPanel" />

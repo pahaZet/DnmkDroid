@@ -11,6 +11,7 @@ import android.media.MediaPlayer;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.Log;
 import android.util.Rational;
@@ -140,14 +141,31 @@ public class CallFragment extends Fragment {
 
     private ConstraintLayout mLayout;
     private TextView mPeerName;
+    private TextView mCallStatus;
     private ImageView mPeerAvatar;
 
     private ComTopic<VxCard> mTopic;
     private int mCallSeqID = 0;
     private InfoListener mTinodeListener;
     private boolean mCallStarted = false;
+    private boolean mCallClosing = false;
     private boolean mAudioOnly = false;
     private boolean mArrangementVideoOn = false;
+    private long mCallConnectedAt = 0L;
+    private final Handler mCallDurationHandler = new Handler(Looper.getMainLooper());
+    private final Runnable mCallDurationUpdateTask = new Runnable() {
+        @Override
+        public void run() {
+            if (!isAdded() || mCallStatus == null || mCallConnectedAt <= 0) {
+                return;
+            }
+
+            long elapsed = SystemClock.uptimeMillis() - mCallConnectedAt;
+            mCallStatus.setText(UtilsString.millisToTime((int) elapsed));
+            long nextTickDelay = 1000 - (elapsed % 1000);
+            mCallDurationHandler.postDelayed(this, nextTickDelay);
+        }
+    };
 
     private final ComTopic.CTListener<VxCard> mTopicListener = new ComTopic.CTListener<>() {
         @Override
@@ -189,6 +207,7 @@ public class CallFragment extends Fragment {
         mExitFullscreenBtn = v.findViewById(R.id.buttonExitFullscreen);
 
         mLayout = v.findViewById(R.id.callMainLayout);
+        mCallStatus = v.findViewById(R.id.callStatus);
 
         // Button click handlers: speakerphone on/off, mute/unmute, video/audio-only, hang up.
         mToggleSpeakerphoneBtn.setOnClickListener(v0 ->
@@ -243,6 +262,7 @@ public class CallFragment extends Fragment {
         boolean speakerphoneOn = !mAudioOnly;
         speakerphoneOn &= TindroidApp.setSpeakerphoneOn(speakerphoneOn);
         mToggleSpeakerphoneBtn.setImageResource(speakerphoneOn ? R.drawable.ic_volume_up : R.drawable.ic_volume_off);
+        updateProximityScreenOff(!speakerphoneOn);
 
         if (!mTopic.isAttached()) {
             mTopic.addListener(mTopicListener);
@@ -261,6 +281,7 @@ public class CallFragment extends Fragment {
         }
         mPeerName = view.findViewById(R.id.peerName);
         mPeerName.setText(peerName);
+        mCallStatus.setText(R.string.connecting_call);
 
         mRemoteIceCandidatesCache = new ArrayList<>();
 
@@ -282,10 +303,12 @@ public class CallFragment extends Fragment {
         stopMediaAndSignal();
         Cache.getTinode().removeListener(mTinodeListener);
         mTopic.remListener(mTopicListener);
+        stopCallDurationUpdates();
 
         TindroidApp.setAudioMode(mAudioSettings.audioMode);
         TindroidApp.setMicrophoneMute(mAudioSettings.microphone);
         TindroidApp.setSpeakerphoneOn(mAudioSettings.speakerphone);
+        updateProximityScreenOff(false);
         TindroidApp.abandonAudioFocus();
 
         super.onDestroyView();
@@ -365,6 +388,7 @@ public class CallFragment extends Fragment {
                 mToggleMicBtn.setVisibility(View.GONE);
                 mHangupBtn.setVisibility(View.GONE);
                 mPeerName.setVisibility(View.GONE);
+                mCallStatus.setVisibility(View.GONE);
                 mLocalVideoView.setVisibility(View.GONE);
                 mExitFullscreenBtn.setVisibility(View.GONE);
             } else {
@@ -374,6 +398,7 @@ public class CallFragment extends Fragment {
                 mToggleMicBtn.setVisibility(View.VISIBLE);
                 mHangupBtn.setVisibility(View.VISIBLE);
                 mPeerName.setVisibility(View.VISIBLE);
+                mCallStatus.setVisibility(View.VISIBLE);
                 if (mRemoteVideoView.getVisibility() != View.VISIBLE) {
                     mPeerAvatar.setVisibility(View.VISIBLE);
                 }
@@ -383,6 +408,7 @@ public class CallFragment extends Fragment {
                 mExitFullscreenBtn.setVisibility(View.VISIBLE);
             }
         });
+        updateProximityScreenOff(!isInPictureInPictureMode && !TindroidApp.isSpeakerphoneOn());
         rearrangePeerViews(activity, mArrangementVideoOn);
     }
 
@@ -473,8 +499,17 @@ public class CallFragment extends Fragment {
     @SuppressLint("UnsafeOptInUsageError")
     private void toggleSpeakerphone(FloatingActionButton b) {
         boolean isEnabled = TindroidApp.isSpeakerphoneOn();
-        if (TindroidApp.setSpeakerphoneOn(!isEnabled)) {
-            b.setImageResource(!isEnabled ? R.drawable.ic_volume_up : R.drawable.ic_volume_off);
+        boolean speakerphoneOn = !isEnabled;
+        if (TindroidApp.setSpeakerphoneOn(speakerphoneOn)) {
+            b.setImageResource(speakerphoneOn ? R.drawable.ic_volume_up : R.drawable.ic_volume_off);
+            updateProximityScreenOff(!speakerphoneOn);
+        }
+    }
+
+    private void updateProximityScreenOff(boolean enable) {
+        Activity activity = getActivity();
+        if (activity instanceof CallActivity callActivity) {
+            callActivity.updateProximityScreenOff(enable);
         }
     }
 
@@ -589,8 +624,6 @@ public class CallFragment extends Fragment {
             mRootEglBase.release();
             mRootEglBase = null;
         }
-
-        handleCallClose(getActivity());
     }
 
     private void initVideos() {
@@ -670,18 +703,38 @@ public class CallFragment extends Fragment {
 
     // Sends a hang-up notification to the peer and closes the fragment.
     private void handleCallClose(Activity activity) {
+        handleCallClose(activity, true, mCallSeqID > 0 || mCallConnectedAt > 0);
+    }
+
+    private void handleCallClose(Activity activity, boolean notifyPeer, boolean playEndTone) {
+        if (mCallClosing) {
+            return;
+        }
+        mCallClosing = true;
+        stopCallDurationUpdates();
         stopSoundEffect();
 
-        // Close fragment.
-        if (mCallSeqID > 0) {
+        if (notifyPeer && mCallSeqID > 0) {
             mTopic.videoCallHangUp(mCallSeqID);
         }
 
         mCallSeqID = -1;
-        if (activity != null && !activity.isFinishing() && !activity.isDestroyed()) {
-            ((CallActivity) activity).finishCall();
-        }
         Cache.endCallInProgress();
+
+        if (activity == null || activity.isFinishing() || activity.isDestroyed()) {
+            return;
+        }
+
+        Runnable finishCall = () -> {
+            if (!activity.isFinishing() && !activity.isDestroyed()) {
+                ((CallActivity) activity).finishCall();
+            }
+        };
+        if (playEndTone) {
+            playSingleSoundEffect(R.raw.call_ended, finishCall);
+        } else {
+            finishCall.run();
+        }
     }
 
     // Call initiation.
@@ -709,6 +762,7 @@ public class CallFragment extends Fragment {
                                         // All good.
                                         mCallSeqID = seq;
                                         Cache.setCallActive(mTopic.getName(), seq);
+                                        playLoopingSoundEffect(R.raw.call_out);
                                         return null;
                                     }
                                 }
@@ -723,6 +777,7 @@ public class CallFragment extends Fragment {
                 rearrangePeerViews(activity, false);
                 mTopic.videoCallAccept(mCallSeqID);
                 Cache.setCallConnected();
+                startCallDurationUpdates();
                 break;
             default:
                 break;
@@ -907,9 +962,7 @@ public class CallFragment extends Fragment {
                 switch (iceConnectionState) {
                     case CLOSED:
                     case FAILED:
-                        playSoundEffect(R.raw.call_ended);
-                        new Handler(Looper.getMainLooper()).postDelayed(() ->
-                                handleCallClose(getActivity()), 700);
+                        handleCallClose(getActivity(), false, true);
                         break;
                 }
             }
@@ -1032,6 +1085,7 @@ public class CallFragment extends Fragment {
 
         createPeerConnection(true);
         Cache.setCallConnected();
+        startCallDurationUpdates();
     }
 
     // Handles remote SDP offer received from the peer,
@@ -1121,23 +1175,73 @@ public class CallFragment extends Fragment {
 
     // Cleans up call after receiving a remote hang-up notification.
     private void handleRemoteHangup(MsgServerInfo info) {
-        handleCallClose(getActivity());
+        handleCallClose(getActivity(), false, true);
     }
 
-    private void playSoundEffect(@RawRes int effectId) {
-        if (mMediaPlayer == null) {
-            mMediaPlayer = MediaPlayer.create(getContext(), effectId);
+    private void playLoopingSoundEffect(@RawRes int effectId) {
+        if (mMediaPlayer != null) {
+            return;
+        }
+
+        mMediaPlayer = MediaPlayer.create(getContext(), effectId);
+        if (mMediaPlayer != null) {
             mMediaPlayer.setLooping(true);
             mMediaPlayer.start();
         }
     }
 
+    private void playSingleSoundEffect(@RawRes int effectId, Runnable onComplete) {
+        stopSoundEffect();
+
+        MediaPlayer player = MediaPlayer.create(getContext(), effectId);
+        if (player == null) {
+            if (onComplete != null) {
+                onComplete.run();
+            }
+            return;
+        }
+
+        mMediaPlayer = player;
+        player.setLooping(false);
+        player.setOnCompletionListener(mp -> {
+            mp.setOnCompletionListener(null);
+            mp.release();
+            if (mMediaPlayer == mp) {
+                mMediaPlayer = null;
+            }
+            if (onComplete != null) {
+                onComplete.run();
+            }
+        });
+        player.start();
+    }
+
     private synchronized void stopSoundEffect() {
         if (mMediaPlayer != null) {
-            mMediaPlayer.stop();
+            try {
+                if (mMediaPlayer.isPlaying()) {
+                    mMediaPlayer.stop();
+                }
+            } catch (IllegalStateException ignored) {
+            }
             mMediaPlayer.release();
             mMediaPlayer = null;
         }
+    }
+
+    private void startCallDurationUpdates() {
+        if (mCallConnectedAt != 0) {
+            return;
+        }
+
+        mCallConnectedAt = SystemClock.uptimeMillis();
+        mCallDurationHandler.removeCallbacks(mCallDurationUpdateTask);
+        mCallDurationUpdateTask.run();
+    }
+
+    private void stopCallDurationUpdates() {
+        mCallDurationHandler.removeCallbacks(mCallDurationUpdateTask);
+        mCallConnectedAt = 0;
     }
 
     private void rearrangePeerViews(final Activity activity, boolean remoteVideoLive) {
@@ -1246,7 +1350,7 @@ public class CallFragment extends Fragment {
                     handleVideoOfferMsg(info);
                     break;
                 case RINGING:
-                    playSoundEffect(R.raw.call_out);
+                    playLoopingSoundEffect(R.raw.call_out);
                     break;
                 default:
                     break;
