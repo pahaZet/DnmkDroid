@@ -19,6 +19,7 @@ import android.widget.Toast;
 import com.google.android.material.textfield.TextInputLayout;
 
 import java.util.List;
+import java.util.Locale;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.NonNull;
@@ -30,12 +31,15 @@ import androidx.preference.PreferenceManager;
 import co.tinode.tindroid.account.Utils;
 import co.tinode.tindroid.widgets.PhoneEdit;
 import co.tinode.tinodesdk.PromisedReply;
+import co.tinode.tinodesdk.ServerResponseException;
 import co.tinode.tinodesdk.Tinode;
 import co.tinode.tinodesdk.model.AuthScheme;
 import co.tinode.tinodesdk.model.ServerMessage;
 
 public class PasswordResetFragment extends Fragment implements MenuProvider {
     private static final String TAG = "PasswordResetFragment";
+    private static final String METHOD_EMAIL = "email";
+    private static final String METHOD_TEL = "tel";
 
     private String[] mCredMethods = null;
 
@@ -113,9 +117,16 @@ public class PasswordResetFragment extends Fragment implements MenuProvider {
     // Configure email or phone field.
     private void setupCredentials(Activity activity, String[] methods) {
         if (methods == null || methods.length == 0) {
-            mCredMethods = new String[]{"tel"};
+            mCredMethods = new String[]{METHOD_EMAIL};
         } else {
-            mCredMethods = methods;
+            String selected = methods[0];
+            for (String method : methods) {
+                if (METHOD_EMAIL.equals(method)) {
+                    selected = method;
+                    break;
+                }
+            }
+            mCredMethods = new String[]{selected};
         }
 
         activity.runOnUiThread(() -> {
@@ -136,12 +147,12 @@ public class PasswordResetFragment extends Fragment implements MenuProvider {
                 View phone = fragmentView.findViewById(R.id.phone);
                 View willSendSMS = fragmentView.findViewById(R.id.will_send_sms);
 
-                if (method.equals("tel")) {
+                if (METHOD_TEL.equals(method)) {
                     emailWrapper.setVisibility(View.GONE);
                     willSendEmail.setVisibility(View.GONE);
                     phone.setVisibility(View.VISIBLE);
                     willSendSMS.setVisibility(View.VISIBLE);
-                } else if (method.equals("email")) {
+                } else if (METHOD_EMAIL.equals(method)) {
                     emailWrapper.setVisibility(View.VISIBLE);
                     willSendEmail.setVisibility(View.VISIBLE);
                     phone.setVisibility(View.GONE);
@@ -164,14 +175,14 @@ public class PasswordResetFragment extends Fragment implements MenuProvider {
 
     private String validateCredential(LoginActivity parent, @Nullable String method) {
         String value = null;
-        if ("tel".equals(method)) {
+        if (METHOD_TEL.equals(method)) {
             final PhoneEdit phone = parent.findViewById(R.id.phone);
             if (!phone.isNumberValid()) {
                 phone.setError(getText(R.string.phone_number_required));
             } else {
                 value = phone.getPhoneNumberE164();
             }
-        } else if ("email".equals(method)) {
+        } else if (METHOD_EMAIL.equals(method)) {
             value = ((EditText) parent.findViewById(R.id.email)).getText().toString().trim().toLowerCase();
             if (value.isEmpty()) {
                 ((EditText) parent.findViewById(R.id.email)).setError(getString(R.string.email_required));
@@ -192,7 +203,7 @@ public class PasswordResetFragment extends Fragment implements MenuProvider {
             return;
         }
 
-        Cache.getTinode().requestResetSecret("basic", method, value)
+        requestResetCode(method, value)
                 .thenApply(
                         new PromisedReply.SuccessListener<>() {
                             @Override
@@ -221,6 +232,57 @@ public class PasswordResetFragment extends Fragment implements MenuProvider {
                                 return null;
                             }
                         });
+    }
+
+    private PromisedReply<ServerMessage> requestResetCode(String method, String value) {
+        final Tinode tinode = Cache.getTinode();
+        if (!METHOD_EMAIL.equals(method)) {
+            return tinode.requestResetSecret("basic", method, value);
+        }
+
+        return tinode.requestResetSecret(method, value)
+                .thenCatch(new PromisedReply.FailureListener<>() {
+                    @Override
+                    public <E extends Exception> PromisedReply<ServerMessage> onFailure(E err) throws Exception {
+                        if (!shouldFallbackToLegacyReset(err)) {
+                            throw err;
+                        }
+
+                        Log.i(TAG, "Falling back to legacy password reset request format");
+                        return tinode.requestResetSecret("basic", method, value);
+                    }
+                });
+    }
+
+    private boolean shouldFallbackToLegacyReset(Exception err) {
+        if (!(err instanceof ServerResponseException)) {
+            return false;
+        }
+
+        ServerResponseException response = (ServerResponseException) err;
+        if (response.getCode() == ServerMessage.STATUS_NOT_IMPLEMENTED) {
+            return true;
+        }
+        if (response.getCode() != ServerMessage.STATUS_BAD_REQUEST) {
+            return false;
+        }
+
+        String reason = response.getReason();
+        if (!TextUtils.isEmpty(reason)) {
+            String normalized = reason.toLowerCase(Locale.US);
+            if ("malformed".equals(normalized) || "unsupported".equals(normalized)) {
+                return true;
+            }
+        }
+
+        String message = response.getMessage();
+        if (TextUtils.isEmpty(message)) {
+            return false;
+        }
+
+        String normalized = message.toLowerCase(Locale.US);
+        return normalized.contains("malformed") || normalized.contains("unsupported")
+                || normalized.contains("not implemented");
     }
 
     // Nothing entered.

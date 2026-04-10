@@ -60,6 +60,18 @@ public record AuthScheme(String scheme, String secret) implements Serializable {
                 .getBytes(StandardCharsets.UTF_8));
     }
 
+    public static String encodeResetSecret(String method, String value) {
+        // Short reset secret supported by the server for validated email lookup.
+        if (method == null || value == null) {
+            throw new IllegalArgumentException("illegal 'null' parameter");
+        }
+        if (method.contains(":") || value.contains(":")) {
+            throw new IllegalArgumentException("illegal character ':' in parameter");
+        }
+        return Base64Variants.getDefaultVariant().encode((method + ":" + value)
+                .getBytes(StandardCharsets.UTF_8));
+    }
+
     public static String[] decodeBasicToken(String token) {
         String basicToken;
         // Decode base64 string

@@ -1629,6 +1629,19 @@ public class Tinode {
         return login(AuthScheme.LOGIN_RESET, AuthScheme.encodeResetSecret(scheme, method, value), null);
     }
 
+    /**
+     * Reset authentication secret by validated credential without explicitly naming
+     * the authentication scheme. Currently supported by the server for basic auth
+     * reset by validated email.
+     *
+     * @param method validation method to use, such as 'email'.
+     * @param value  credential value, e.g. 'jdoe@example.com'.
+     * @return PromisedReply of the reply ctrl message
+     */
+    public PromisedReply<ServerMessage> requestResetSecret(String method, String value) {
+        return login(AuthScheme.LOGIN_RESET, AuthScheme.encodeResetSecret(method, value), null);
+    }
+
     protected PromisedReply<ServerMessage> login(String combined) {
         AuthScheme auth = AuthScheme.parse(combined);
         if (auth != null) {

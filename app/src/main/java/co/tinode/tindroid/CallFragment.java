@@ -93,6 +93,7 @@ public class CallFragment extends Fragment {
     private static final int CAMERA_RESOLUTION_WIDTH = 1024;
     private static final int CAMERA_RESOLUTION_HEIGHT = 720;
     private static final int CAMERA_FPS = 30;
+    private static final float CALL_ENDED_VOLUME = 0.5f;
 
     public enum CallDirection {
         OUTGOING,
@@ -641,7 +642,7 @@ public class CallFragment extends Fragment {
             mLocalVideoView.setVisibility(View.VISIBLE);
             sendToPeer(VIDEO_UNMUTED_EVENT);
             return true;
-        } catch (InterruptedException | IllegalStateException e) {
+        } catch (IllegalStateException e) {
             Log.w(TAG, "Failed to enable local video", e);
             return false;
         }
@@ -696,7 +697,7 @@ public class CallFragment extends Fragment {
         if (!mVideoOff && mVideoCapturerAndroid != null) {
             try {
                 mVideoCapturerAndroid.startCapture(CAMERA_RESOLUTION_WIDTH, CAMERA_RESOLUTION_HEIGHT, CAMERA_FPS);
-            } catch (InterruptedException | IllegalStateException e) {
+            } catch (IllegalStateException e) {
                 Log.w(TAG, "Failed to start local video capture", e);
                 mVideoOff = true;
             }
@@ -1348,6 +1349,9 @@ public class CallFragment extends Fragment {
 
         mMediaPlayer = player;
         player.setLooping(false);
+        if (effectId == R.raw.call_ended) {
+            player.setVolume(CALL_ENDED_VOLUME, CALL_ENDED_VOLUME);
+        }
         player.setOnCompletionListener(mp -> {
             mp.setOnCompletionListener(null);
             mp.release();
